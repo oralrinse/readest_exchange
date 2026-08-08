@@ -59,10 +59,6 @@ vi.mock('@/services/sync/cloudSyncProvider', () => ({
   settingsKeyForBackend: (kind: FileSyncBackendKind) => (kind === 'gdrive' ? 'googleDrive' : kind),
 }));
 
-vi.mock('@/hooks/useQuotaStats', () => ({
-  useQuotaStats: () => ({ userProfilePlan: 'pro' }),
-}));
-
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (s: string) => s,
 }));

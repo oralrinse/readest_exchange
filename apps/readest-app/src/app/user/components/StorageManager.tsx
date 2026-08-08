@@ -297,24 +297,6 @@ const StorageManager = () => {
                 {formatFileSize(stats.totalSize)}
               </div>
             </div>
-            <div>
-              <div className='text-base-content/60 text-sm'>{_('Quota')}</div>
-              <div className='text-base-content text-xl font-semibold'>
-                {formatFileSize(stats.quota)}
-              </div>
-            </div>
-            <div>
-              <div className='text-base-content/60 text-sm'>{_('Used')}</div>
-              <div className='text-base-content text-xl font-semibold'>
-                {stats.usagePercentage}%
-              </div>
-            </div>
-          </div>
-          <div className='bg-base-300 mt-4 h-2 w-full overflow-hidden rounded-full'>
-            <div
-              className='bg-primary h-full transition-all'
-              style={{ width: `${Math.min(stats.usagePercentage, 100)}%` }}
-            />
           </div>
         </div>
       ) : (
@@ -323,10 +305,7 @@ const StorageManager = () => {
           <div className='grid grid-cols-2 gap-4 sm:grid-cols-4'>
             <div className='skeleton h-16 w-full'></div>
             <div className='skeleton h-16 w-full'></div>
-            <div className='skeleton h-16 w-full'></div>
-            <div className='skeleton h-16 w-full'></div>
           </div>
-          <div className='skeleton mt-4 h-2 w-full rounded-full'></div>
         </div>
       )}
 

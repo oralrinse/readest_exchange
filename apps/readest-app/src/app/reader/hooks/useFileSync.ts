@@ -5,7 +5,6 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useBookProgress } from '@/store/readerProgressStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { useQuotaStats } from '@/hooks/useQuotaStats';
 import { useTranslation } from '@/hooks/useTranslation';
 import { debounce } from '@/utils/debounce';
 import { eventDispatcher } from '@/utils/event';
@@ -105,14 +104,10 @@ export const useFileSync = (bookKey: string) => {
   // Reactive: triggers the auto-push effect on page turns.
   const progress = useBookProgress(bookKey);
 
-  const { userProfilePlan } = useQuotaStats();
   // Every enabled third-party backend syncs this book in parallel (#5062);
   // Readest Cloud's native progress sync is useProgressSync's job, not this
   // hook's, and runs independently.
-  const activeKinds = useMemo(
-    () => getActiveFileSyncBackends(settings, userProfilePlan ?? 'free'),
-    [settings, userProfilePlan],
-  );
+  const activeKinds = useMemo(() => getActiveFileSyncBackends(settings), [settings]);
 
   /** Flips true on the first local change after a push, false right before each push. */
   const dirtyRef = useRef(false);

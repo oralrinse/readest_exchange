@@ -3,7 +3,6 @@ import type { Book } from '@/types/book';
 import type { EnvConfigType } from '@/services/environment';
 import type { TranslationFunc } from '@/hooks/useTranslation';
 import type { SystemSettings } from '@/types/settings';
-import type { UserPlan } from '@/types/quota';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useFileSyncStore } from '@/store/fileSyncStore';
@@ -50,9 +49,7 @@ export const canBackendRun = (kind: FileSyncBackendKind): boolean => {
  */
 export const getReadyFileSyncBackends = (
   settings: SystemSettings | null | undefined,
-  plan?: UserPlan,
-): FileSyncBackendKind[] =>
-  getActiveFileSyncBackends(settings, plan).filter((k) => canBackendRun(k));
+): FileSyncBackendKind[] => getActiveFileSyncBackends(settings).filter((k) => canBackendRun(k));
 
 /** Build one backend's engine, or null when it cannot run here. */
 const buildEngine = async (

@@ -16,9 +16,6 @@ const RETRY_DELAY_BASE_MS = 2000;
 // transferSpeed changes every call so the store's no-op guard cannot help)
 // (Sentry READEST-2).
 const PROGRESS_THROTTLE_MS = 100;
-// Quota failures in a batch import arrive one per book as transfers drain;
-// collapse them into one summary toast per burst instead of N identical toasts.
-const QUOTA_TOAST_FLUSH_MS = 1500;
 
 interface PersistedQueueData {
   schemaVersion?: number;
@@ -38,8 +35,6 @@ class TransferManager {
   private updateBook: ((book: Book) => Promise<void>) | null = null;
   private _: TranslationFunc | null = null;
   private settingsUnsub: (() => void) | null = null;
-  private quotaFailureCount = 0;
-  private quotaToastTimer: ReturnType<typeof setTimeout> | null = null;
   private readyResolve: () => void = () => {};
   private readyPromise: Promise<void> = new Promise<void>((resolve) => {
     this.readyResolve = resolve;
@@ -461,15 +456,7 @@ class TransferManager {
       const currentStore = useTransferStore.getState();
       const currentTransfer = currentStore.transfers[transfer.id];
 
-      // Quota exhaustion is permanent for this account state; retrying
-      // burns three backoff rounds per book for the same 403.
-      const isQuotaError = errorMessage.includes('Insufficient storage quota');
-
-      if (
-        !isQuotaError &&
-        currentTransfer &&
-        currentTransfer.retryCount < currentTransfer.maxRetries
-      ) {
+      if (currentTransfer && currentTransfer.retryCount < currentTransfer.maxRetries) {
         // Schedule retry with exponential backoff
         const delay = RETRY_DELAY_BASE_MS * Math.pow(2, currentTransfer.retryCount);
         currentStore.incrementRetryCount(transfer.id);
@@ -488,8 +475,6 @@ class TransferManager {
             type: 'error',
             message: _('Please log in to continue'),
           });
-        } else if (isQuotaError) {
-          this.recordQuotaFailure();
         } else {
           const errorMessages = getTransferMessages(transfer, _).failure;
 
@@ -514,28 +499,6 @@ class TransferManager {
       // Continue processing
       setTimeout(() => this.processQueue(), 100);
     }
-  }
-
-  private recordQuotaFailure(): void {
-    this.quotaFailureCount += 1;
-    if (this.quotaToastTimer) clearTimeout(this.quotaToastTimer);
-    this.quotaToastTimer = setTimeout(() => this.flushQuotaToast(), QUOTA_TOAST_FLUSH_MS);
-  }
-
-  private flushQuotaToast(): void {
-    const _ = this._;
-    const count = this.quotaFailureCount;
-    this.quotaFailureCount = 0;
-    this.quotaToastTimer = null;
-    if (!count || !_) return;
-
-    eventDispatcher.dispatch('toast', {
-      type: 'error',
-      message:
-        count === 1
-          ? _('Insufficient storage quota')
-          : _('{{count}} uploads failed: insufficient storage quota', { count }),
-    });
   }
 
   private async executeBookTransfer(

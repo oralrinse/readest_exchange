@@ -242,9 +242,6 @@ export const deleteFile = async (filePath: string) => {
 export interface StorageStats {
   totalFiles: number;
   totalSize: number;
-  usage: number;
-  quota: number;
-  usagePercentage: number;
   byBookHash: Array<{
     bookHash: string | null;
     fileCount: number;

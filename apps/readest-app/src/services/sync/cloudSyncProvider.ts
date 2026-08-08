@@ -1,6 +1,4 @@
 import type { SystemSettings } from '@/types/settings';
-import type { UserPlan } from '@/types/quota';
-import { isCloudSyncAllowed } from '@/utils/access';
 import type { FileSyncBackendKind } from '@/services/sync/file/providerRegistry';
 
 /**
@@ -82,57 +80,34 @@ export const getCloudSyncProviders = (
 export const cloudProvidersDisplayName = (kinds: CloudSyncProviderKind[]): string =>
   kinds.map(cloudProviderDisplayName).join(', ');
 
-/**
- * `isCloudSyncAllowed` needs the UserPlan, which comes from the async
- * auth JWT — non-React modules (transferManager, syncCategories) cannot
- * resolve it synchronously. The plan-resolution flow (auth / quota
- * refresh) writes the latest plan here; gate checks read it back.
- * Defaults to 'free', the most restrictive plan, so a gate evaluated
- * before the first auth resolution can only be too cautious, never too
- * permissive.
- */
-let cachedUserPlan: UserPlan = 'free';
-
-export const setCachedUserPlan = (plan: UserPlan | undefined): void => {
-  cachedUserPlan = plan ?? 'free';
-};
-
-export const getCachedUserPlan = (): UserPlan => cachedUserPlan;
-
 export interface CloudSyncGate {
   /** Readest Cloud syncs the library channels (rows, progress, notes, files). */
   readest: boolean;
   /** Third-party backends the user switched on, in the fixed webdav/gdrive/s3/onedrive/icloud order. */
   backends: FileSyncBackendKind[];
   /**
-   * True when third-party backends are switched on but the plan does not allow
-   * cloud sync. Paused means paused: a paused backend does not sync. Readest
-   * Cloud is unaffected — if it is on it keeps running, because the user asked
-   * for it, not as a silent fallback (#4959).
+   * Whether the enabled third-party backends are paused. Always false — the
+   * premium cloud-sync paywall was removed, so switching a backend on means it
+   * runs. Kept as a field so any consumer that reads `.paused` stays valid.
    */
   paused: boolean;
 }
 
 export const resolveCloudSyncGate = (
   settings: SystemSettings | null | undefined,
-  plan: UserPlan = cachedUserPlan,
 ): CloudSyncGate => {
   const backends = getEnabledFileSyncBackends(settings);
   return {
     readest: isReadestCloudEnabled(settings),
     backends,
-    paused: backends.length > 0 && !isCloudSyncAllowed(plan),
+    paused: false,
   };
 };
 
-/** The backends that may actually run right now (empty when paused). */
+/** The backends that may actually run right now. */
 export const getActiveFileSyncBackends = (
   settings: SystemSettings | null | undefined,
-  plan?: UserPlan,
-): FileSyncBackendKind[] => {
-  const gate = resolveCloudSyncGate(settings, plan);
-  return gate.paused ? [] : gate.backends;
-};
+): FileSyncBackendKind[] => resolveCloudSyncGate(settings).backends;
 
 /**
  * One-time upgrade migration helper (appService migrate20260706): users
@@ -192,7 +167,5 @@ export const applySyncBooksAutoEnable = (settings: SystemSettings): boolean => {
  * Readest Cloud; whether book *files* also go to Readest is still governed
  * separately by the Manage Sync "book" toggle and the transfer queue.
  */
-export const isReadestCloudStorageActive = (
-  settings: SystemSettings | null | undefined,
-  _plan?: UserPlan,
-): boolean => isReadestCloudEnabled(settings);
+export const isReadestCloudStorageActive = (settings: SystemSettings | null | undefined): boolean =>
+  isReadestCloudEnabled(settings);

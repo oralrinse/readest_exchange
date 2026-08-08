@@ -10,33 +10,10 @@ import {
 } from '@/services/sync/cloudSyncActivation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { broadcastGlobalSettings } from '@/utils/settingsSync';
-import { CLOUD_SYNC_REQUIRES_PREMIUM, isCloudSyncAllowed, isCloudSyncInPlan } from '@/utils/access';
 import type { SystemSettings } from '@/types/settings';
 import type { EnvConfigType } from '@/services/environment';
 
 const mockBroadcastGlobalSettings = vi.mocked(broadcastGlobalSettings);
-
-describe('isCloudSyncInPlan', () => {
-  test('any paid plan can use cloud sync', () => {
-    expect(isCloudSyncInPlan('plus')).toBe(true);
-    expect(isCloudSyncInPlan('pro')).toBe(true);
-    expect(isCloudSyncInPlan('purchase')).toBe(true); // lifetime
-  });
-
-  test('free plan cannot', () => {
-    expect(isCloudSyncInPlan('free')).toBe(false);
-  });
-});
-
-describe('isCloudSyncAllowed (premium paywall)', () => {
-  test('third-party cloud sync requires a paid plan', () => {
-    expect(CLOUD_SYNC_REQUIRES_PREMIUM).toBe(true);
-    expect(isCloudSyncAllowed('free')).toBe(false);
-    expect(isCloudSyncAllowed('plus')).toBe(true);
-    expect(isCloudSyncAllowed('pro')).toBe(true);
-    expect(isCloudSyncAllowed('purchase')).toBe(true);
-  });
-});
 
 describe('withCloudProviderEnabled', () => {
   const both = {

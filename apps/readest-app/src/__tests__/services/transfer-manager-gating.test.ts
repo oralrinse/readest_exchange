@@ -11,7 +11,6 @@ vi.mock('@/utils/event', () => ({
 }));
 
 import { transferManager } from '@/services/transferManager';
-import { eventDispatcher } from '@/utils/event';
 import type { Book } from '@/types/book';
 
 function makeBook(overrides: Partial<Book> = {}): Book {
@@ -389,46 +388,8 @@ describe('cancelled bucket accounting', () => {
   });
 });
 
-describe('quota failure handling', () => {
-  test('quota 403 fails immediately with zero retries', async () => {
-    const appService = makeAppService({
-      uploadBook: vi.fn().mockRejectedValue(new Error('Insufficient storage quota')),
-    });
-    const book = makeBook();
-    await initManager(appService, [book]);
-
-    transferManager.queueUpload(book);
-    await flushAsync();
-
-    const transfers = Object.values(useTransferStore.getState().transfers);
-    expect(transfers).toHaveLength(1);
-    expect(transfers[0]?.status).toBe('failed');
-    expect(transfers[0]?.retryCount).toBe(0);
-    expect(appService['uploadBook']).toHaveBeenCalledTimes(1);
-  });
-
-  test('a batch of quota failures produces one summary toast, not one per book', async () => {
-    const appService = makeAppService({
-      uploadBook: vi.fn().mockRejectedValue(new Error('Insufficient storage quota')),
-    });
-    const books = [makeBook(), makeBook({ hash: 'hash2' }), makeBook({ hash: 'hash3' })];
-    await initManager(appService, books);
-
-    transferManager.queueBatchUploads(books);
-    await flushAsync(10000);
-
-    const dispatched = vi.mocked(eventDispatcher.dispatch).mock.calls.filter(
-      ([event, payload]) =>
-        event === 'toast' &&
-        String((payload as { message?: string })?.message ?? '')
-          .toLowerCase()
-          .includes('quota'),
-    );
-    expect(dispatched).toHaveLength(1);
-    expect(String((dispatched[0]![1] as { message: string }).message)).toContain('3');
-  });
-
-  test('non-quota errors keep the existing retry behavior', async () => {
+describe('failure handling', () => {
+  test('errors are retried with exponential backoff up to maxRetries', async () => {
     const appService = makeAppService({
       uploadBook: vi.fn().mockRejectedValue(new Error('network boom')),
     });

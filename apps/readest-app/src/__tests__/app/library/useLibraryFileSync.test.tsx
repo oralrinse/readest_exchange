@@ -30,10 +30,6 @@ vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (text: string) => text,
 }));
 
-vi.mock('@/hooks/useQuotaStats', () => ({
-  useQuotaStats: () => ({ userProfilePlan: 'free' }),
-}));
-
 vi.mock('@/services/sync/cloudSyncProvider', () => ({
   getActiveFileSyncBackends: () => routing.backends,
 }));

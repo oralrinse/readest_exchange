@@ -32,7 +32,6 @@ import {
   OneDriveSettings,
   ICloudSettings,
 } from '@/types/settings';
-import { UserStorageQuota, UserDailyTranslationQuota } from '@/types/quota';
 import { getDefaultMaxBlockSize, getDefaultMaxInlineSize } from '@/utils/config';
 import { stubTranslation as _ } from '@/utils/misc';
 import { DEFAULT_AI_SETTINGS } from './ai/constants';
@@ -943,20 +942,6 @@ export const MIN_AUTO_SCROLL_SPEED = 25;
 export const AUTO_SCROLL_SPEED_STEP = 25;
 
 export const SHOW_UNREAD_STATUS_BADGE = false;
-
-export const DEFAULT_STORAGE_QUOTA: UserStorageQuota = {
-  free: 500 * 1024 * 1024,
-  plus: 5 * 1024 * 1024 * 1024,
-  pro: 20 * 1024 * 1024 * 1024,
-  purchase: 0,
-};
-
-export const DEFAULT_DAILY_TRANSLATION_QUOTA: UserDailyTranslationQuota = {
-  free: 10 * 1024,
-  plus: 100 * 1024,
-  pro: 500 * 1024,
-  purchase: 0,
-};
 
 export const DOUBLE_CLICK_INTERVAL_THRESHOLD_MS = 250;
 export const DISABLE_DOUBLE_CLICK_ON_MOBILE = true;

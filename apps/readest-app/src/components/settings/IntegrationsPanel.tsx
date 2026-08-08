@@ -21,13 +21,11 @@ import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
-import { useQuotaStats } from '@/hooks/useQuotaStats';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useCustomOPDSStore } from '@/store/customOPDSStore';
 import { useFileSyncStore } from '@/store/fileSyncStore';
 import { CatalogManager } from '@/app/opds/components/CatalogManager';
 import { saveSysSettings } from '@/helpers/settings';
-import { isCloudSyncAllowed } from '@/utils/access';
 import { isWebAppPlatform } from '@/services/environment';
 import { getGoogleWebClientId } from '@/services/sync/providers/gdrive/buildGoogleDriveProvider';
 import { getMicrosoftClientId } from '@/services/sync/providers/onedrive/buildOneDriveProvider';
@@ -119,20 +117,6 @@ const IntegrationsPanel: React.FC = () => {
       .then((s) => setICloudAvailable(!!s.available && !!s.documentsPath))
       .catch(() => setICloudAvailable(false));
   }, []);
-  // Third-party cloud sync will be a premium feature (any paid plan), but it is
-  // temporarily UNGATED while the feature stabilises — `isCloudSyncAllowed`
-  // returns true for every plan until `CLOUD_SYNC_REQUIRES_PREMIUM` is flipped
-  // back on. The `?? 'free'` keeps the (re-gated) loading state non-premium.
-  const { userProfilePlan } = useQuotaStats();
-  const isCloudSyncPremium = isCloudSyncAllowed(userProfilePlan ?? 'free');
-  // Only surface the tier chip to users who cannot use the feature yet — signed
-  // out (known immediately), or signed in on a plan without cloud sync (known
-  // once the plan resolves). An entitled user already has it, so the badge is
-  // noise. Suppressing it while a signed-in user's plan is still loading avoids
-  // flashing the chip at a premium user on every open.
-  const premiumBadge =
-    !user || (userProfilePlan !== undefined && !isCloudSyncPremium) ? _('Premium') : undefined;
-
   const [subPage, setSubPage] = useState<SubPage>(null);
 
   // Hydrate the OPDS store from settings so the row's catalog count is
@@ -172,20 +156,6 @@ const IntegrationsPanel: React.FC = () => {
   // stick to the next open. Recognised values match the SubPage union.
   useEffect(() => {
     if (!requestedSubPage) return;
-    const isCloudRequest =
-      requestedSubPage === 'webdav' ||
-      requestedSubPage === 'gdrive' ||
-      requestedSubPage === 's3' ||
-      requestedSubPage === 'onedrive' ||
-      requestedSubPage === 'icloud' ||
-      requestedSubPage === 'cloudsync';
-    // Cloud-sync sub-pages are premium-gated. If the plan is still loading, wait
-    // (don't consume the request); once known, only honor it for paid plans.
-    if (isCloudRequest && !isCloudSyncPremium) {
-      if (userProfilePlan === undefined) return;
-      setRequestedSubPage(null);
-      return;
-    }
     if (
       requestedSubPage === 'kosync' ||
       requestedSubPage === 'bookorbit' ||
@@ -205,7 +175,7 @@ const IntegrationsPanel: React.FC = () => {
       setSubPage('gdrive');
     }
     setRequestedSubPage(null);
-  }, [requestedSubPage, setRequestedSubPage, isCloudSyncPremium, userProfilePlan]);
+  }, [requestedSubPage, setRequestedSubPage]);
 
   // Sub-page wrapper matches the list-view's `my-4 w-full` so the
   // SubPageHeader's "Integrations" label lands at the exact same Y position
@@ -399,7 +369,7 @@ const IntegrationsPanel: React.FC = () => {
         <BoxedList>
           <NavigationRow
             title={_('Account and Storage')}
-            status={_('Manage your plan and stored files')}
+            status={_('Manage your account and stored files')}
             onClick={() => navigateToProfile(router)}
           />
         </BoxedList>
@@ -458,7 +428,7 @@ const IntegrationsPanel: React.FC = () => {
   // connect.
   const providers = getCloudSyncProviders(settings);
   const readestEnabled = isReadestCloudEnabled(settings);
-  const cloudGate = resolveCloudSyncGate(settings, userProfilePlan ?? 'free');
+  const cloudGate = resolveCloudSyncGate(settings);
   const enabledBackends = cloudGate.backends;
 
   /** Book files have a home when Readest Cloud is on or some backend uploads them. */
@@ -474,7 +444,6 @@ const IntegrationsPanel: React.FC = () => {
     enabled: !!settings.webdav?.enabled,
     configured: webdavConfigured,
     syncing: isWebDAVSyncing,
-    paused: cloudGate.paused,
     lastError: webdavLastError,
     syncBooks: settings.webdav?.syncBooks ?? false,
     booksBackedUpElsewhere: booksBackedUpBy('webdav'),
@@ -483,7 +452,6 @@ const IntegrationsPanel: React.FC = () => {
     enabled: !!settings.googleDrive?.enabled,
     configured: gdriveConfigured,
     syncing: isGDriveSyncing,
-    paused: cloudGate.paused,
     lastError: gdriveLastError,
     syncBooks: settings.googleDrive?.syncBooks ?? false,
     booksBackedUpElsewhere: booksBackedUpBy('gdrive'),
@@ -500,7 +468,6 @@ const IntegrationsPanel: React.FC = () => {
     enabled: !!settings.s3?.enabled,
     configured: s3Configured,
     syncing: isS3Syncing,
-    paused: cloudGate.paused,
     lastError: s3LastError,
     syncBooks: settings.s3?.syncBooks ?? false,
     booksBackedUpElsewhere: booksBackedUpBy('s3'),
@@ -510,7 +477,6 @@ const IntegrationsPanel: React.FC = () => {
     enabled: !!settings.onedrive?.enabled,
     configured: onedriveConfigured,
     syncing: isOneDriveSyncing,
-    paused: cloudGate.paused,
     lastError: onedriveLastError,
     syncBooks: settings.onedrive?.syncBooks ?? false,
     booksBackedUpElsewhere: booksBackedUpBy('onedrive'),
@@ -519,14 +485,12 @@ const IntegrationsPanel: React.FC = () => {
     enabled: !!settings.icloud?.enabled,
     configured: icloudAvailable,
     syncing: isICloudSyncing,
-    paused: cloudGate.paused,
     lastError: icloudLastError,
     syncBooks: settings.icloud?.syncBooks ?? false,
     booksBackedUpElsewhere: booksBackedUpBy('icloud'),
   });
   const readestStatus = getReadestCloudRowStatus(_, {
     signedIn: !!user,
-    planLoading: userProfilePlan === undefined,
     enabled: readestEnabled,
   });
 
@@ -596,9 +560,9 @@ const IntegrationsPanel: React.FC = () => {
               onOpen={() => (user ? setSubPage('readest-cloud') : navigateToLogin(router))}
               toggleLabel={_('Sync with Readest Cloud')}
             />
-            {/* Third-party providers are premium: every row carries the tier
-                badge; on a free plan the checkbox is disabled and opening a
-                row routes to the upgrade page instead of the config sub-page. */}
+            {/* Third-party providers are available on every plan: the checkbox
+                turns sync on/off once the provider is configured, and opening a
+                row goes straight to its config sub-page. */}
             {(appService?.isDesktopApp ||
               appService?.isAndroidApp ||
               appService?.isIOSApp ||
@@ -608,17 +572,13 @@ const IntegrationsPanel: React.FC = () => {
                 icon={RiGoogleLine}
                 title={_('Google Drive')}
                 status={gdriveStatus}
-                badge={premiumBadge}
                 checked={!!settings.googleDrive?.enabled}
                 canToggle={canToggleCloudProvider({
-                  isPremium: isCloudSyncPremium,
                   isConfigured: gdriveConfigured,
                   isEnabled: !!settings.googleDrive?.enabled,
                 })}
                 onToggle={(next) => toggleCloudProvider('gdrive', next)}
-                onOpen={() =>
-                  isCloudSyncPremium ? setSubPage('gdrive') : navigateToProfile(router)
-                }
+                onOpen={() => setSubPage('gdrive')}
                 toggleLabel={_('Sync with Google Drive')}
               />
             )}
@@ -626,30 +586,26 @@ const IntegrationsPanel: React.FC = () => {
               icon={RiCloudLine}
               title={_('WebDAV')}
               status={webdavStatus}
-              badge={premiumBadge}
               checked={!!settings.webdav?.enabled}
               canToggle={canToggleCloudProvider({
-                isPremium: isCloudSyncPremium,
                 isConfigured: webdavConfigured,
                 isEnabled: !!settings.webdav?.enabled,
               })}
               onToggle={(next) => toggleCloudProvider('webdav', next)}
-              onOpen={() => (isCloudSyncPremium ? setSubPage('webdav') : navigateToProfile(router))}
+              onOpen={() => setSubPage('webdav')}
               toggleLabel={_('Sync with WebDAV')}
             />
             <CloudProviderRow
               icon={RiDatabase2Line}
               title={_('S3 Storage')}
               status={s3Status}
-              badge={premiumBadge}
               checked={!!settings.s3?.enabled}
               canToggle={canToggleCloudProvider({
-                isPremium: isCloudSyncPremium,
                 isConfigured: s3Configured,
                 isEnabled: !!settings.s3?.enabled,
               })}
               onToggle={(next) => toggleCloudProvider('s3', next)}
-              onOpen={() => (isCloudSyncPremium ? setSubPage('s3') : navigateToProfile(router))}
+              onOpen={() => setSubPage('s3')}
               toggleLabel={_('Sync with S3')}
             />
             {(appService?.isDesktopApp ||
@@ -661,17 +617,13 @@ const IntegrationsPanel: React.FC = () => {
                 icon={RiMicrosoftLine}
                 title={_('OneDrive')}
                 status={onedriveStatus}
-                badge={premiumBadge}
                 checked={!!settings.onedrive?.enabled}
                 canToggle={canToggleCloudProvider({
-                  isPremium: isCloudSyncPremium,
                   isConfigured: onedriveConfigured,
                   isEnabled: !!settings.onedrive?.enabled,
                 })}
                 onToggle={(next) => toggleCloudProvider('onedrive', next)}
-                onOpen={() =>
-                  isCloudSyncPremium ? setSubPage('onedrive') : navigateToProfile(router)
-                }
+                onOpen={() => setSubPage('onedrive')}
                 toggleLabel={_('Sync with OneDrive')}
               />
             )}
@@ -680,17 +632,13 @@ const IntegrationsPanel: React.FC = () => {
                 icon={RiAppleLine}
                 title={_('iCloud')}
                 status={icloudStatus}
-                badge={premiumBadge}
                 checked={!!settings.icloud?.enabled}
                 canToggle={canToggleCloudProvider({
-                  isPremium: isCloudSyncPremium,
                   isConfigured: icloudAvailable,
                   isEnabled: !!settings.icloud?.enabled,
                 })}
                 onToggle={(next) => toggleCloudProvider('icloud', next)}
-                onOpen={() =>
-                  isCloudSyncPremium ? setSubPage('icloud') : navigateToProfile(router)
-                }
+                onOpen={() => setSubPage('icloud')}
                 toggleLabel={_('Sync with iCloud')}
               />
             )}
@@ -797,14 +745,12 @@ interface CloudProviderRowProps {
   status: string;
   /** This provider syncs the library. */
   checked: boolean;
-  /** Can be toggled inline (configured, and allowed by the plan). */
+  /** Can be toggled inline (configured, or already enabled). */
   canToggle: boolean;
   onToggle: (next: boolean) => void;
   onOpen: () => void;
   /** Accessible label for the checkbox (e.g. "Sync with WebDAV"). */
   toggleLabel: string;
-  /** End-aligned tier chip (e.g. "Premium") — uniform column before the checkbox. */
-  badge?: string;
 }
 
 /**
@@ -822,7 +768,6 @@ const CloudProviderRow: React.FC<CloudProviderRowProps> = ({
   onToggle,
   onOpen,
   toggleLabel,
-  badge,
 }) => {
   return (
     <div className='group flex w-full items-center gap-3 px-4 py-3'>
@@ -849,7 +794,6 @@ const CloudProviderRow: React.FC<CloudProviderRowProps> = ({
           <span className='text-base-content/65 truncate text-[0.85em]'>{status}</span>
         </div>
       </button>
-      {badge && <span className='badge badge-sm badge-ghost shrink-0'>{badge}</span>}
       <input
         type='checkbox'
         className='checkbox checkbox-sm flex-shrink-0'
