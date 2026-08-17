@@ -11,7 +11,6 @@ import { clipPageWithSignInFallback, isClipCancelled } from '@/services/send/cli
 import type { ConvertedBook } from '@/services/send/conversion/types';
 import { eventDispatcher } from '@/utils/event';
 import { parseAnnotationDeepLink } from '@/utils/deeplink';
-import { parseShareDeepLink } from '@/utils/share';
 import { useTranslation } from './useTranslation';
 
 interface ClipOptions {
@@ -110,7 +109,7 @@ export function useClipUrlIngress() {
         const { library } = useLibraryStore.getState();
         const { settings } = useSettingsStore.getState();
         const ingested = await ingestFile(
-          { file: book.file, books: library, forceUpload: true },
+          { file: book.file, books: library },
           { appService, settings, isLoggedIn: !!user },
         );
         if (!ingested) {
@@ -184,11 +183,6 @@ export function useClipUrlIngress() {
       // Annotation deep links can come over https (web.readest.com).
       // Skip them — useOpenAnnotationLink owns that path.
       if (parseAnnotationDeepLink(url)) return;
-      // Share links (https://web.readest.com/s/{token}) also arrive over https.
-      // Skip them — useOpenShareLink owns that path. Without this guard the
-      // share landing URL is run through the article clipper instead of
-      // importing the shared book.
-      if (parseShareDeepLink(url)) return;
       void clipAndImport(url);
     };
 

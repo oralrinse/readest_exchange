@@ -102,7 +102,6 @@ export const applyOPDSCover = async ({
     await downloadFile({
       appService,
       dst: tmpPath,
-      cfp: '',
       url: downloadUrl,
       headers,
       singleThreaded: true,

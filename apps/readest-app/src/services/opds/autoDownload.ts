@@ -73,7 +73,6 @@ async function downloadAndImport(
   const responseHeaders = await downloadFile({
     appService,
     dst: dstFilePath,
-    cfp: '',
     url: downloadUrl,
     headers,
     singleThreaded: true,

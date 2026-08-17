@@ -1,13 +1,6 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
-
-// transferManager is a singleton with heavy dependencies; mock it so the test
-// only observes whether ingestFile decided to queue an upload.
-vi.mock('@/services/transferManager', () => ({
-  transferManager: { queueUpload: vi.fn() },
-}));
+import { describe, test, expect, vi } from 'vitest';
 
 import { ingestFile } from '@/services/ingestService';
-import { transferManager } from '@/services/transferManager';
 import type { Book } from '@/types/book';
 import type { AppService, OsPlatform } from '@/types/system';
 import type { SystemSettings } from '@/types/settings';
@@ -52,10 +45,6 @@ function makeDeps(
 }
 
 describe('ingestFile', () => {
-  beforeEach(() => {
-    vi.mocked(transferManager.queueUpload).mockClear();
-  });
-
   test('returns the imported book', async () => {
     const { appService, settings, isLoggedIn } = makeDeps();
     const book = await ingestFile(
@@ -152,57 +141,6 @@ describe('ingestFile', () => {
     expect(book?.updatedAt).toBe(2000);
   });
 
-  test('forceUpload queues an upload even when book sync is turned off', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      bookSyncEnabled: false,
-      isLoggedIn: true,
-    });
-    await ingestFile(
-      { file: 'book.epub', books: [], forceUpload: true },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).toHaveBeenCalledTimes(1);
-  });
-
-  test('queues an upload by default without forceUpload', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      isLoggedIn: true,
-    });
-    await ingestFile({ file: 'book.epub', books: [] }, { appService, settings, isLoggedIn });
-    expect(transferManager.queueUpload).toHaveBeenCalledTimes(1);
-  });
-
-  test('does not queue an upload when book sync is turned off in manage sync', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      bookSyncEnabled: false,
-      isLoggedIn: true,
-    });
-    await ingestFile({ file: 'book.epub', books: [] }, { appService, settings, isLoggedIn });
-    expect(transferManager.queueUpload).not.toHaveBeenCalled();
-  });
-
-  test('does not queue an upload when the user is not logged in', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      isLoggedIn: false,
-    });
-    await ingestFile(
-      { file: 'book.epub', books: [], forceUpload: true },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).not.toHaveBeenCalled();
-  });
-
-  test('never queues an upload for a transient import', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      isLoggedIn: true,
-    });
-    await ingestFile(
-      { file: 'book.epub', books: [], transient: true, forceUpload: true },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).not.toHaveBeenCalled();
-  });
-
   test('passes the transient flag through to importBook', async () => {
     const { appService, settings, isLoggedIn, importBook } = makeDeps();
     await ingestFile(
@@ -214,18 +152,6 @@ describe('ingestFile', () => {
       transient: true,
       inPlace: false,
     });
-  });
-
-  test('does not queue an upload when the book is already uploaded', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      importResult: makeBook({ uploadedAt: 5000 }),
-      isLoggedIn: true,
-    });
-    await ingestFile(
-      { file: 'book.epub', books: [], forceUpload: true },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).not.toHaveBeenCalled();
   });
 
   // ------ in-place auto-detection ------
@@ -620,56 +546,5 @@ describe('ingestFile', () => {
     );
     expect(importBook).toHaveBeenCalledTimes(1);
     expect(importBook.mock.calls[0]?.[2]).toMatchObject({ inPlace: false });
-  });
-
-  // ------ in-place + cloud upload ------
-  // In-place imports are still uploaded so the user gets backup / cross-device
-  // sync. Only transient imports opt out of upload entirely. The on-the-wire
-  // shape is identical to a hash-copy book; uploadBook reads from book.filePath
-  // when set, which is asserted in cloud-service.test.ts.
-
-  test('queues an in-place book by default (book.filePath set)', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      isLoggedIn: true,
-      externalLibraryFolders: ['/Users/me/Library'],
-      importResult: makeBook({ filePath: '/Users/me/Library/sample.epub' }),
-    });
-    await ingestFile(
-      { file: '/Users/me/Library/sample.epub', books: [] },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).toHaveBeenCalledTimes(1);
-  });
-
-  test('forceUpload still queues an in-place book even when book sync is off', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      bookSyncEnabled: false,
-      isLoggedIn: true,
-      externalLibraryFolders: ['/Users/me/Library'],
-      importResult: makeBook({ filePath: '/Users/me/Library/sample.epub' }),
-    });
-    await ingestFile(
-      { file: '/Users/me/Library/sample.epub', books: [], forceUpload: true },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).toHaveBeenCalledTimes(1);
-  });
-
-  test('transient still trumps in-place — no upload even with forceUpload', async () => {
-    const { appService, settings, isLoggedIn } = makeDeps({
-      isLoggedIn: true,
-      externalLibraryFolders: ['/Users/me/Library'],
-      importResult: makeBook({ filePath: '/Users/me/Library/sample.epub' }),
-    });
-    await ingestFile(
-      {
-        file: '/Users/me/Library/sample.epub',
-        books: [],
-        transient: true,
-        forceUpload: true,
-      },
-      { appService, settings, isLoggedIn },
-    );
-    expect(transferManager.queueUpload).not.toHaveBeenCalled();
   });
 });

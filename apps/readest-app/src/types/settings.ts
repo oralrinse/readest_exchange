@@ -269,32 +269,6 @@ export interface ICloudSettings {
 }
 
 /**
- * Readest Cloud's own library-sync switch. Readest Cloud used to be the
- * derived fallback — "on" whenever no third-party provider was enabled —
- * because exactly one provider could own the library channels. Providers are
- * now independently selectable (#5062), so Readest Cloud needs a flag of its
- * own.
- *
- * `enabled` is DELIBERATELY optional with no default (this slice must never
- * enter `DEFAULT_SYSTEM_SETTINGS`): an absent value falls back to the old
- * derivation, so upgrading users keep exactly the behaviour they had and no
- * migration has to rewrite anyone's settings. It is written only once the user
- * touches a Cloud Sync checkbox.
- *
- * Device-local, like the other providers' `enabled` flags.
- */
-export interface ReadestCloudSettings {
-  enabled?: boolean;
-  /**
-   * Device-local wall-clock millis of when this device turned Readest Cloud
-   * off. Anchors the mixed-fleet probe: a native /api/sync row newer than this
-   * means another device is still writing the channels this one stopped
-   * writing. Excluded from cross-device restore.
-   */
-  disabledAt?: number;
-}
-
-/**
  * User-facing sync categories. 'progress' gates the existing book-config
  * (reading progress) sync, 'note' gates annotations, 'book' gates book
  * binaries + metadata, 'dictionary' gates the imported-dictionary replica
@@ -308,8 +282,6 @@ export type SyncCategory =
   | 'progress'
   | 'note'
   | 'dictionary'
-  | 'font'
-  | 'texture'
   | 'opds_catalog'
   | 'settings'
   | 'credentials'
@@ -320,8 +292,6 @@ export const SYNC_CATEGORIES: readonly SyncCategory[] = [
   'progress',
   'note',
   'dictionary',
-  'font',
-  'texture',
   'opds_catalog',
   'settings',
   'stats',
@@ -473,8 +443,6 @@ export interface SystemSettings {
   bookorbit: BookOrbitSettings;
   readwise: ReadwiseSettings;
   hardcover: HardcoverSettings;
-  /** Optional by design — see {@link ReadestCloudSettings}. Never defaulted. */
-  readestCloud?: ReadestCloudSettings;
   webdav: WebDAVSettings;
   googleDrive: GoogleDriveSettings;
   s3: S3Settings;

@@ -47,9 +47,7 @@ export const useReadwiseSync = (bookKey: string) => {
         if (newNotes.length === 0) return;
 
         const coverImageUrl =
-          (settings.readwise.includeCoverImage ?? true)
-            ? await getPublicCoverUrl(book, appService)
-            : undefined;
+          (settings.readwise.includeCoverImage ?? true) ? await getPublicCoverUrl(book) : undefined;
         const result = await client.pushHighlights(newNotes, book, coverImageUrl);
         if (result.success) {
           await updateLastSyncedAt(Date.now());
@@ -70,9 +68,7 @@ export const useReadwiseSync = (bookKey: string) => {
     if (!book || !config?.booknotes) return;
 
     const coverImageUrl =
-      (settings.readwise.includeCoverImage ?? true)
-        ? await getPublicCoverUrl(book, appService)
-        : undefined;
+      (settings.readwise.includeCoverImage ?? true) ? await getPublicCoverUrl(book) : undefined;
     const result = await client.pushHighlights(config.booknotes, book, coverImageUrl);
     if (result.success) {
       await updateLastSyncedAt(Date.now());

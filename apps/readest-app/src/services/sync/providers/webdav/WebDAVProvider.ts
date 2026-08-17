@@ -1,12 +1,19 @@
 import { WebDAVSettings } from '@/types/settings';
 import { isTauriAppPlatform } from '@/services/environment';
-import { tauriDownload, tauriUpload } from '@/utils/transfer';
+import {
+  createProgressThrottle,
+  tauriDownload,
+  tauriUpload,
+  type ProgressHandler,
+  type ProgressPayload,
+} from '@/utils/transfer';
 import {
   FileEntry,
   FileHead,
   FileSyncError,
   FileSyncErrorCode,
   FileSyncProvider,
+  StreamProgress,
 } from '@/services/sync/file/provider';
 import {
   WebDAVConfig,
@@ -89,33 +96,85 @@ export const createWebDAVProvider = (settings: WebDAVSettings): FileSyncProvider
     const authHeaders = (): Record<string, string> => ({
       Authorization: buildBasicAuthHeader(settings.username, settings.password),
     });
-    provider.uploadStream = async (remotePath, localPath) => {
+
+    // The Tauri transfer primitives emit per-chunk progress via a Channel.
+    // `runTransfer` wraps one so that:
+    //   1. byte progress is throttled to ~250ms and forwarded as StreamProgress
+    //      (the sync UI renders "Uploading 1.2 GB / 1.1 GB" instead of freezing
+    //      for the whole gigabyte — progress signals were being dropped before);
+    //   2. a transfer that goes silent for `STALL_TIMEOUT_MS` rejects locally
+    //      instead of awaiting forever. This is the last line of defence for
+    //      links the Rust `read_timeout` can't cover (older APKs, a wedged
+    //      command); a live-but-slow transfer keeps re-arming the timer via
+    //      every progress chunk, so it can never false-positive.
+    const STALL_TIMEOUT_MS = 90_000;
+    const runTransfer = (
+      onProgress: ((p: StreamProgress) => void) | undefined,
+      start: (handler: ProgressHandler) => Promise<unknown>,
+    ): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        let settled = false;
+        let stallTimer: ReturnType<typeof setTimeout> | null = null;
+        const settle = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = null;
+          resolve(ok);
+        };
+        const armStall = () => {
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => {
+            stallTimer = null;
+            console.warn('WebDAVProvider: transfer stalled, rejecting');
+            settle(false);
+          }, STALL_TIMEOUT_MS);
+        };
+        const throttle = createProgressThrottle(
+          (p: ProgressPayload) =>
+            onProgress?.({
+              progress: p.progress,
+              total: p.total,
+              transferSpeed: p.transferSpeed,
+            }),
+          250,
+        );
+        // Any progress chunk re-arms the stall timer — the link is alive.
+        const handler: ProgressHandler = (p) => {
+          throttle.push(p);
+          armStall();
+        };
+        armStall();
+        start(handler)
+          .then(() => {
+            throttle.flush();
+            settle(true);
+          })
+          .catch((e) => {
+            console.warn('WebDAVProvider: transfer failed', e);
+            settle(false);
+          });
+      });
+
+    provider.uploadStream = async (remotePath, localPath, onProgress) => {
       const url = buildRequestUrl(settings.serverUrl, remotePath);
-      try {
+      return runTransfer(onProgress, (handler) =>
         // tauriUpload's TS type says Map, but the Rust command accepts a JSON
         // object → HashMap<String, String>; pass the headers object directly.
-        await tauriUpload(
+        tauriUpload(
           url,
           localPath,
           'PUT',
-          undefined,
+          handler,
           authHeaders() as unknown as Map<string, string>,
-        );
-        return true;
-      } catch (e) {
-        console.warn('WebDAVProvider.uploadStream failed', remotePath, e);
-        return false;
-      }
+        ),
+      );
     };
-    provider.downloadStream = async (remotePath, localPath) => {
+    provider.downloadStream = async (remotePath, localPath, onProgress) => {
       const url = buildRequestUrl(settings.serverUrl, remotePath);
-      try {
-        await tauriDownload(url, localPath, undefined, authHeaders());
-        return true;
-      } catch (e) {
-        console.warn('WebDAVProvider.downloadStream failed', remotePath, e);
-        return false;
-      }
+      return runTransfer(onProgress, (handler) =>
+        tauriDownload(url, localPath, handler, authHeaders()),
+      );
     };
   }
 

@@ -137,14 +137,12 @@ export const pullTTSPacks = async (
 };
 
 // The provider pack sync rides: the user's SELECTED third-party file-sync
-// backend. Readest Cloud is deliberately excluded — packs live on the user's
-// own storage only.
+// backend. Packs live on the user's own storage only.
 export const getActiveTTSPackSyncProvider = async (): Promise<FileSyncProvider | null> => {
   try {
     const settings = useSettingsStore.getState().settings;
     const gate = resolveCloudSyncGate(settings);
-    // Third-party backends only (Readest Cloud is excluded from packs). Use
-    // the highest-priority enabled backend, matching the fixed
+    // Use the highest-priority enabled backend, matching the fixed
     // webdav/gdrive/s3/onedrive order.
     const backend = gate.backends[0];
     if (!backend) return null;

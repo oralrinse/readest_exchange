@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { PiUserCircle, PiUserCircleCheck, PiGear } from 'react-icons/pi';
 import { PiSun, PiMoon } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
-import { MdCloudSync, MdSync, MdSyncProblem, MdOutlineSensors } from 'react-icons/md';
+import { MdSync, MdSyncProblem, MdOutlineSensors } from 'react-icons/md';
 
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { DOWNLOAD_READEST_URL } from '@/services/constants';
@@ -15,17 +15,14 @@ import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useFileSyncStore } from '@/store/fileSyncStore';
 import {
-  isReadestCloudEnabled,
   cloudProvidersDisplayName,
   settingsKeyForBackend,
-  type CloudSyncProviderKind,
 } from '@/services/sync/cloudSyncProvider';
 import { getReadyFileSyncBackends } from '@/services/sync/file/runLibrarySync';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
-import { useTransferQueue } from '@/hooks/useTransferQueue';
 import { navigateToLogin, navigateToProfile } from '@/utils/nav';
 import { tauriHandleSetAlwaysOnTop, tauriHandleToggleFullScreen } from '@/utils/window';
 import { setAboutDialogVisible } from '@/components/AboutWindow';
@@ -100,12 +97,6 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   const { isSyncing, setLibrary } = useLibraryStore();
   const fileSyncByKind = useFileSyncStore((s) => s.byKind);
   const fileSyncLastError = useFileSyncStore((s) => s.lastErrorByKind);
-  const { stats, hasActiveTransfers, setIsTransferQueueOpen } = useTransferQueue();
-
-  const openTransferQueue = () => {
-    setIsTransferQueueOpen(true);
-    setIsDropdownOpen?.(false);
-  };
 
   const showAboutReadest = () => {
     setAboutDialogVisible(true);
@@ -263,20 +254,16 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   const coverDir = savedBookCoverPath ? savedBookCoverPath.split('/').pop() : 'Images';
   const savedBookCoverDescription = `💾 ${coverDir}/last-book-cover.png`;
 
-  // The sync row reports the health of whatever the user selected. Native
-  // cursors freeze while Readest Cloud is off (the book/progress/note channels
-  // are gated), so the file engine's timestamps have to stand in.
-  const readestEnabled = isReadestCloudEnabled(settings);
-  // Only the providers that can ACTUALLY sync right now. A web Google Drive whose
+  // The sync row reports the health of whatever the user selected. Account
+  // sync (book/progress/note rows) runs unconditionally while signed in, and
+  // the file backends mirror the book files independently — the last-synced
+  // stamp is the newest across both channels.
+  // Only the backends that can ACTUALLY sync right now. A web Google Drive whose
   // token expired is still enabled but silently skipped, so it must not be counted
   // as active or reported as synced (it would otherwise inflate the count and lend
   // its stale lastSyncedAt to "Synced X ago").
   const backends = getReadyFileSyncBackends(settings);
-  const providers: CloudSyncProviderKind[] = [
-    ...(readestEnabled ? (['readest'] as const) : []),
-    ...backends,
-  ];
-  const providerNames = cloudProvidersDisplayName(providers);
+  const providerNames = cloudProvidersDisplayName(backends);
 
   const providerSyncing = backends.some((kind) => !!fileSyncByKind[kind]?.isSyncing);
   const providerLastError = backends.map((kind) => fileSyncLastError[kind]).find(Boolean);
@@ -284,13 +271,11 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
     0,
     ...backends.map((kind) => settings[settingsKeyForBackend(kind)]?.lastSyncedAt || 0),
   );
-  const nativeLastSyncedAt = readestEnabled
-    ? Math.max(
-        settings.lastSyncedAtBooks || 0,
-        settings.lastSyncedAtConfigs || 0,
-        settings.lastSyncedAtNotes || 0,
-      )
-    : 0;
+  const nativeLastSyncedAt = Math.max(
+    settings.lastSyncedAtBooks || 0,
+    settings.lastSyncedAtConfigs || 0,
+    settings.lastSyncedAtNotes || 0,
+  );
   const lastSyncTime = Math.max(backendLastSyncedAt, nativeLastSyncedAt);
 
   const syncRowLabel = providerLastError
@@ -326,21 +311,6 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         >
           <ul className='ms-0 flex flex-col ps-0 before:hidden'>
             <MenuItem
-              label={_('Cloud File Transfers')}
-              Icon={MdCloudSync}
-              description={
-                hasActiveTransfers
-                  ? _('{{activeCount}} active, {{pendingCount}} pending', {
-                      activeCount: stats.active,
-                      pendingCount: stats.pending,
-                    })
-                  : stats.failed > 0
-                    ? _('{{failedCount}} failed', { failedCount: stats.failed })
-                    : ''
-              }
-              onClick={openTransferQueue}
-            />
-            <MenuItem
               label={syncRowLabel}
               Icon={user ? MdSync : MdSyncProblem}
               labelClass='ps-2 pe-1 !mx-0'
@@ -349,12 +319,12 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
               description={
                 backends.length === 0
                   ? undefined
-                  : providers.length > 1
-                    ? // Several providers named in full would overrun the row; show a
+                  : backends.length > 1
+                    ? // Several backends named in full would overrun the row; show a
                       // count. `count` (not a plain var) so i18next applies each
                       // locale's plural rule — the common case is exactly 2, where
                       // Slavic/Arabic paucal forms differ from the generic plural.
-                      _('Library sync via {{count}} providers', { count: providers.length })
+                      _('Library sync via {{count}} providers', { count: backends.length })
                     : _('Library sync via {{provider}}', { provider: providerNames })
               }
             />

@@ -412,7 +412,7 @@ describe('customDictionaryStore — web search CRUD', () => {
     });
   });
 
-  it('updateDictionary preserves reincarnation when publishing a renamed dictionary', () => {
+  it('updateDictionary preserves reincarnation when renaming', () => {
     const { addDictionary, updateDictionary } = useCustomDictionaryStore.getState();
     addDictionary({
       id: 'mdict:abc',
@@ -428,13 +428,12 @@ describe('customDictionaryStore — web search CRUD', () => {
     mockPublishReplicaUpsert.mockClear();
     updateDictionary('mdict:abc', { name: 'New title' });
 
-    expect(mockPublishReplicaUpsert).toHaveBeenCalledOnce();
-    // Args: (kind, record, contentId, reincarnation?)
-    const call = mockPublishReplicaUpsert.mock.calls[0]!;
-    expect(call[0]).toBe('dictionary');
-    expect(call[1]).toMatchObject({ name: 'New title', reincarnation: 'epoch-1' });
-    expect(call[2]).toBe('content-abc');
-    expect(call[3]).toBe('epoch-1');
+    const dict = useCustomDictionaryStore.getState().dictionaries.find((d) => d.id === 'mdict:abc');
+    expect(dict?.name).toBe('New title');
+    // Reincarnation rides the local record; the rename no longer publishes a
+    // dictionary replica row (binary transfers were removed).
+    expect(dict?.reincarnation).toBe('epoch-1');
+    expect(mockPublishReplicaUpsert).not.toHaveBeenCalled();
   });
 });
 

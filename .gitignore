@@ -56,3 +56,6 @@ result*
 
 fastlane/staging/
 fastlane/metadata-play/android/en-US/changelogs
+
+# local signing keystore (never commit)
+readest-release.keystore

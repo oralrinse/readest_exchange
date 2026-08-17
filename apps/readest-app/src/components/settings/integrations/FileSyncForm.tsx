@@ -8,6 +8,7 @@ import { useTranslation, type TranslationFunc } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useFileSyncStore } from '@/store/fileSyncStore';
+import { formatBytes } from '@/utils/book';
 import { eventDispatcher } from '@/utils/event';
 import { FileSyncEngine } from '@/services/sync/file/engine';
 import { FileSyncError } from '@/services/sync/file/provider';
@@ -152,12 +153,20 @@ const FileSyncForm: React.FC<FileSyncFormProps> = ({
         syncBooks: stored.syncBooks ?? false,
         fullSync: stored.fullSync ?? false,
         deviceId: deviceId as string,
-        onProgress: ({ book, index, total, action }) => {
+        onProgress: ({ book, index, total, action, transferred, totalBytes, transferSpeed }) => {
           const actionStr = action === 'downloading' ? _('Downloading') : _('Uploading');
+          // When a streaming transfer is in flight the engine relays byte
+          // progress (throttled by the provider). Surface it as the detail line
+          // so a 1.1 GB CBZ doesn't look like the sync hung on the book title.
+          let detail = book.title || book.hash.slice(0, 8);
+          if (typeof transferred === 'number' && typeof totalBytes === 'number') {
+            detail = `${detail} · ${formatBytes(transferred)} / ${formatBytes(totalBytes)}`;
+            if (transferSpeed) detail = `${detail} · ${formatBytes(transferSpeed)}/s`;
+          }
           updateProgress(
             kind,
             _('{{action}} {{n}} / {{total}}', { action: actionStr, n: index + 1, total }),
-            book.title || book.hash.slice(0, 8),
+            detail,
           );
         },
       });

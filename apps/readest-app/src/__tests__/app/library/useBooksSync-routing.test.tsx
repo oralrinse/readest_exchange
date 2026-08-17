@@ -4,28 +4,23 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { Book } from '@/types/book';
 
 /**
- * Issue #5062 — cloud sync providers are independently selectable, so a user
- * can mirror the library to Readest Cloud AND a file backend (WebDAV, Google
- * Drive, S3, OneDrive) at once. `pullLibrary` in useBooksSync.ts therefore has
- * four routing paths depending on which of {Readest Cloud, a file backend}
- * are enabled:
+ * `pullLibrary` in useBooksSync.ts runs two independent legs:
  *
- *   - both enabled:        the file pass runs, THEN the native pull also runs
- *   - file backend only:   the file pass runs, the native pull does not
- *   - Readest Cloud only:  the native pull runs, the file pass does not
- *   - neither (not covered here; nothing runs)
+ *   - the file sync pass, when at least one file backend (WebDAV, Google
+ *     Drive, S3, OneDrive) is enabled — it works signed out;
+ *   - the native account pull, which runs UNCONDITIONALLY once signed in
+ *     (Readest Cloud storage was removed; the account-level metadata
+ *     channel remains).
  *
- * `isReadestCloudEnabled` and `getActiveFileSyncBackends` are settable per
- * test (unlike demo-books-sync.test.tsx, which hardcodes them to the one
- * scenario where none of these branches can be observed) so every path, plus
- * the verbose-toast-fires-once invariant and the handleAutoSync mixed-fleet
- * probe gate, can actually be exercised.
+ * With a signed-in user (as every test below mocks), the native pull is
+ * always expected; the file pass is expected exactly when a backend is
+ * enabled. These tests pin that routing plus the verbose-toast-fires-once
+ * invariant and the combined book-count toast.
  */
 
 const appService = vi.hoisted(() => ({
   saveLibraryBooks: vi.fn(async () => {}),
   generateCoverImageUrl: vi.fn(async () => 'blob:cover'),
-  downloadBookCovers: vi.fn(async () => {}),
 }));
 
 const syncState = vi.hoisted(() => ({
@@ -38,18 +33,15 @@ const syncState = vi.hoisted(() => ({
   lastSyncedAtBooks: 0,
 }));
 
-// Per-test-settable routing inputs, read by the mocked cloudSyncProvider
-// functions below instead of being hardcoded to one scenario.
+// Per-test-settable routing input, read by the mocked cloudSyncProvider
+// function below instead of being hardcoded to one scenario.
 const routing = vi.hoisted(() => ({
-  readestEnabled: true,
   backends: [] as ('webdav' | 'gdrive' | 's3' | 'onedrive')[],
 }));
 
 const runFileLibrarySyncPass = vi.hoisted(() =>
   vi.fn(async (): Promise<{ booksSynced: number } | null> => ({ booksSynced: 1 })),
 );
-
-const checkMixedFleetOnce = vi.hoisted(() => vi.fn(async () => false));
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'user-1' } }),
@@ -80,16 +72,11 @@ vi.mock('@/hooks/useSync', () => ({
 }));
 
 vi.mock('@/services/sync/cloudSyncProvider', () => ({
-  isReadestCloudEnabled: () => routing.readestEnabled,
   getActiveFileSyncBackends: () => routing.backends,
 }));
 
 vi.mock('@/services/sync/file/runLibrarySync', () => ({
   runFileLibrarySyncPass,
-}));
-
-vi.mock('@/services/sync/fleetDetection', () => ({
-  checkMixedFleetOnce,
 }));
 
 const { useBooksSync } = await import('@/app/library/hooks/useBooksSync');
@@ -100,7 +87,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   syncState.syncedBooks = null;
   syncState.lastSyncedAtBooks = 0;
-  routing.readestEnabled = true;
   routing.backends = [];
   useLibraryStore.setState({ library: [], libraryLoaded: true, isSyncing: false });
 });
@@ -114,9 +100,8 @@ afterEach(() => {
   cleanup();
 });
 
-describe('useBooksSync pullLibrary routing (issue #5062)', () => {
-  it('runs both the file pass and the native pull when both providers are enabled', async () => {
-    routing.readestEnabled = true;
+describe('useBooksSync pullLibrary routing', () => {
+  it('runs both the file pass and the native pull when a file backend is enabled', async () => {
     routing.backends = ['gdrive'];
 
     renderHook(() => useBooksSync());
@@ -131,22 +116,7 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
     expect(pullCalls.length).toBeGreaterThan(0);
   });
 
-  it('runs only the file pass when Readest Cloud is off and a file backend is on', async () => {
-    routing.readestEnabled = false;
-    routing.backends = ['webdav'];
-
-    renderHook(() => useBooksSync());
-
-    await waitFor(() => expect(runFileLibrarySyncPass).toHaveBeenCalled());
-    // Give any (incorrect) native call a chance to fire before asserting it didn't.
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(syncState.syncBooks).not.toHaveBeenCalled();
-  });
-
-  it('runs only the native pull when Readest Cloud is on and no file backend is on', async () => {
-    routing.readestEnabled = true;
+  it('runs only the native pull when no file backend is enabled', async () => {
     routing.backends = [];
 
     renderHook(() => useBooksSync());
@@ -157,8 +127,7 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
     expect(runFileLibrarySyncPass).not.toHaveBeenCalled();
   });
 
-  it('toasts exactly once for a verbose pull when both providers are enabled', async () => {
-    routing.readestEnabled = true;
+  it('toasts exactly once for a verbose pull when a file backend is enabled', async () => {
     routing.backends = ['gdrive'];
 
     const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
@@ -183,7 +152,6 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
   });
 
   it('sums the books synced across both legs in the single combined toast', async () => {
-    routing.readestEnabled = true;
     routing.backends = ['gdrive'];
 
     const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
@@ -209,7 +177,6 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
   });
 
   it('still reports a combined success when the file pass fails but the native pull succeeds', async () => {
-    routing.readestEnabled = true;
     routing.backends = ['gdrive'];
 
     const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
@@ -234,30 +201,5 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
     const toastCalls = dispatchSpy.mock.calls.filter(([event]) => event === 'toast');
     expect(toastCalls).toHaveLength(1);
     expect(toastCalls[0]?.[1]).toMatchObject({ type: 'info', message: '4 book(s) synced' });
-  });
-});
-
-describe('useBooksSync handleAutoSync mixed-fleet probe gate (issue #5062)', () => {
-  it('runs the mixed-fleet probe when Readest Cloud is off', async () => {
-    routing.readestEnabled = false;
-    routing.backends = ['webdav'];
-
-    renderHook(() => useBooksSync());
-
-    await waitFor(() => expect(checkMixedFleetOnce).toHaveBeenCalled());
-  });
-
-  it('does not run the mixed-fleet probe when Readest Cloud is on', async () => {
-    routing.readestEnabled = true;
-    routing.backends = [];
-
-    renderHook(() => useBooksSync());
-
-    // A probe warning "another device still syncs via Readest Cloud" is
-    // meaningless while this device also syncs via Readest Cloud. Wait for
-    // the native pull (which does run in this scenario) as a sync point
-    // before asserting the probe never fired.
-    await waitFor(() => expect(syncState.syncBooks).toHaveBeenCalled());
-    expect(checkMixedFleetOnce).not.toHaveBeenCalled();
   });
 });

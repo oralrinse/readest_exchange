@@ -7,7 +7,6 @@ import env from '../services/environment';
 import { bootstrapReplicaAdapters } from '@/services/sync/replicaBootstrap';
 import { initReplicaSync } from '@/services/sync/replicaSync';
 import { createSettingsCursorStore } from '@/services/sync/replicaCursorStore';
-import { startReplicaTransferIntegration } from '@/services/sync/replicaTransferIntegration';
 import { enableReplicaAutoPersist } from '@/services/sync/replicaPersist';
 
 interface EnvContextType {
@@ -34,7 +33,6 @@ export const EnvProvider = ({ children }: { children: ReactNode }) => {
             cursorStore: createSettingsCursorStore(service),
           });
           ctx.manager.startAutoSync();
-          startReplicaTransferIntegration(service);
         }
       } catch (err) {
         console.warn('replica sync init failed', err);

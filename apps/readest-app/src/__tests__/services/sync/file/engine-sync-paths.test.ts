@@ -77,6 +77,7 @@ describe('FileSyncEngine.pushBookFile — streaming upload', () => {
     expect(uploadStream).toHaveBeenCalledWith(
       expect.stringContaining('/Readest/books/h1/'),
       '/local/x.epub',
+      undefined,
     );
   });
 
@@ -140,6 +141,7 @@ describe('FileSyncEngine.syncLibrary — remote discovery + streaming download',
     expect(downloadStream).toHaveBeenCalledWith(
       '/Readest/books/h2/Remote.epub',
       '/local/h2/Remote.epub',
+      expect.any(Function),
     );
     expect(addBookToLibrary).toHaveBeenCalledTimes(1);
     expect(addBookToLibrary.mock.calls[0]![0].hash).toBe('h2');
@@ -202,7 +204,11 @@ describe('FileSyncEngine.downloadBookFile', () => {
     const ok = await new FileSyncEngine(provider, store).downloadBookFile(makeBook('h1'));
 
     expect(ok).toBe(true);
-    expect(downloadStream).toHaveBeenCalledWith('/Readest/books/h1/B.epub', '/local/h1/B.epub');
+    expect(downloadStream).toHaveBeenCalledWith(
+      '/Readest/books/h1/B.epub',
+      '/local/h1/B.epub',
+      undefined,
+    );
   });
 });
 

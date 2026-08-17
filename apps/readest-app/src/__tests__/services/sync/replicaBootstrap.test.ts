@@ -1,23 +1,4 @@
-import { afterEach, describe, expect, test, vi } from 'vitest';
-
-vi.mock('@/store/customDictionaryStore', () => ({
-  useCustomDictionaryStore: { getState: () => ({ markAvailableByContentId: vi.fn() }) },
-}));
-
-vi.mock('@/store/customFontStore', () => ({
-  useCustomFontStore: { getState: () => ({ markAvailableByContentId: vi.fn() }) },
-}));
-
-vi.mock('@/store/customTextureStore', () => ({
-  useCustomTextureStore: { getState: () => ({ markAvailableByContentId: vi.fn() }) },
-}));
-
-vi.mock('@/store/customOPDSStore', () => ({
-  useCustomOPDSStore: {
-    getState: () => ({ applyRemoteCatalog: vi.fn(), softDeleteByContentId: vi.fn() }),
-  },
-  findOPDSCatalogByContentId: vi.fn(),
-}));
+import { afterEach, describe, expect, test } from 'vitest';
 
 import {
   __resetBootstrapForTests,
@@ -28,30 +9,41 @@ import {
   getReplicaAdapter,
   listReplicaAdapters,
 } from '@/services/sync/replicaRegistry';
-import { __resetReplicaTransferIntegrationForTests } from '@/services/sync/replicaTransferIntegration';
-import { dictionaryAdapter } from '@/services/sync/adapters/dictionary';
+import { opdsCatalogAdapter } from '@/services/sync/adapters/opdsCatalog';
+import { settingsAdapter } from '@/services/sync/adapters/settings';
 
 afterEach(() => {
   clearReplicaAdapters();
   __resetBootstrapForTests();
-  __resetReplicaTransferIntegrationForTests();
 });
 
 describe('bootstrapReplicaAdapters', () => {
-  test('registers the dictionary adapter', () => {
+  test('registers the opds_catalog adapter', () => {
     bootstrapReplicaAdapters();
-    expect(getReplicaAdapter('dictionary')).toBe(dictionaryAdapter);
+    expect(getReplicaAdapter('opds_catalog')).toBe(opdsCatalogAdapter);
+  });
+
+  test('registers the settings adapter', () => {
+    bootstrapReplicaAdapters();
+    expect(getReplicaAdapter('settings')).toBe(settingsAdapter);
   });
 
   test('is idempotent: calling twice is a no-op (does not throw)', () => {
     bootstrapReplicaAdapters();
     bootstrapReplicaAdapters();
-    expect(listReplicaAdapters()).toHaveLength(5);
+    expect(listReplicaAdapters()).toHaveLength(2);
   });
 
-  test('registers the current allowlist (dictionary, font, texture, opds_catalog, settings)', () => {
+  test('registers the current allowlist (metadata-only kinds only)', () => {
     bootstrapReplicaAdapters();
     const kinds = listReplicaAdapters().map((a) => a.kind);
-    expect(kinds).toEqual(['dictionary', 'font', 'texture', 'opds_catalog', 'settings']);
+    expect(kinds).toEqual(['opds_catalog', 'settings']);
+  });
+
+  test('the dictionary / font / texture adapters are gone (binary transfers removed)', () => {
+    bootstrapReplicaAdapters();
+    expect(getReplicaAdapter('dictionary')).toBeUndefined();
+    expect(getReplicaAdapter('font')).toBeUndefined();
+    expect(getReplicaAdapter('texture')).toBeUndefined();
   });
 });

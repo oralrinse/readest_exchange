@@ -134,8 +134,7 @@ export const runFileLibrarySyncPass = async (
   envConfig: EnvConfigType,
   _: TranslationFunc,
 ): Promise<SyncLibraryResult | null> => {
-  // Paused means paused (#4959): a downgraded account's still-enabled backends
-  // must not sync, and must not fall back to Readest Cloud either.
+  // Paused means paused (#4959): a still-enabled backend must not sync.
   const backends = getActiveFileSyncBackends(useSettingsStore.getState().settings);
   if (backends.length === 0) return null;
 

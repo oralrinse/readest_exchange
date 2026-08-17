@@ -5,11 +5,6 @@ import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import {
-  isReadestCloudEnabled,
-  getEnabledFileSyncBackends,
-  cloudProvidersDisplayName,
-} from '@/services/sync/cloudSyncProvider';
-import {
   SYNC_CATEGORIES,
   isSyncCategoryLocked,
   type SyncCategory,
@@ -40,14 +35,6 @@ const useCategoryCopy = (): Record<SyncCategory, CategoryCopy> => {
       title: _('Dictionaries'),
       description: _('Imported dictionary bundles and settings'),
     },
-    font: {
-      title: _('Fonts'),
-      description: _('Custom font files'),
-    },
-    texture: {
-      title: _('Backgrounds'),
-      description: _('Custom background textures'),
-    },
     opds_catalog: {
       title: _('OPDS catalogs'),
       description: _('Saved catalog URLs and (encrypted) credentials'),
@@ -76,9 +63,6 @@ export function SyncCategoriesSection() {
   const { envConfig } = useEnv();
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const copy = useCategoryCopy();
-  const readestEnabled = isReadestCloudEnabled(settings);
-  const backends = getEnabledFileSyncBackends(settings);
-  const cloudProviderName = cloudProvidersDisplayName(backends);
 
   if (!settings) return null;
 
@@ -118,28 +102,12 @@ export function SyncCategoriesSection() {
           const c = copy[category];
           const on = enabled(category);
           const locked = isSyncCategoryLocked(category);
-          // While Readest Cloud is switched off and a file backend is on, the
-          // book / progress / note channels are routed to the file backend at
-          // runtime and these toggles have no immediate effect. The
-          // description says so in place (same pattern as `locked`), but the
-          // toggle stays interactive and persists: it governs the native
-          // channel the user returns to when Readest Cloud is re-enabled.
-          const managedByProvider =
-            !readestEnabled &&
-            backends.length > 0 &&
-            (category === 'book' || category === 'progress' || category === 'note');
           return (
             <li key={category} className='flex items-center justify-between gap-4 px-4 py-3'>
               <div className='flex flex-col gap-0.5'>
                 <span className='text-base-content text-sm font-medium'>{c.title}</span>
                 <span className='text-base-content/60 text-xs'>
-                  {managedByProvider
-                    ? _('Managed by {{provider}} while it is your cloud sync provider', {
-                        provider: cloudProviderName,
-                      })
-                    : locked
-                      ? _('Required while Dictionaries sync is enabled')
-                      : c.description}
+                  {locked ? _('Required while Dictionaries sync is enabled') : c.description}
                 </span>
               </div>
               <input

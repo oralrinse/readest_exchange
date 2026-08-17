@@ -9,19 +9,6 @@ import {
 } from '@/styles/textures';
 import { useSettingsStore } from './settingsStore';
 import { getReplicaPersistEnv } from '@/services/sync/replicaPersist';
-import { publishReplicaDelete, publishReplicaUpsert } from '@/services/sync/replicaPublish';
-import { TEXTURE_KIND } from '@/services/sync/adapters/texture';
-import { computeTextureContentId } from '@/services/imageService';
-import { migrateLegacyReplicas } from '@/services/sync/migrateLegacy';
-
-const publishTextureUpsert = (texture: CustomTexture): void => {
-  if (!texture.contentId) return;
-  void publishReplicaUpsert(TEXTURE_KIND, texture, texture.contentId, texture.reincarnation);
-};
-
-const publishTextureDelete = (contentId: string): void => {
-  void publishReplicaDelete(TEXTURE_KIND, contentId);
-};
 
 interface TextureStoreState {
   textures: CustomTexture[];
@@ -125,7 +112,6 @@ export const useCustomTextureStore = create<TextureStoreState>((set, get) => ({
         textures: [...state.textures],
       }));
       const refreshed = get().getTexture(texture.id) ?? existingTexture;
-      publishTextureUpsert(refreshed);
       return refreshed;
     }
 
@@ -138,7 +124,6 @@ export const useCustomTextureStore = create<TextureStoreState>((set, get) => ({
       textures: [...state.textures, newTexture],
     }));
 
-    publishTextureUpsert(newTexture);
     return newTexture;
   },
 
@@ -159,7 +144,6 @@ export const useCustomTextureStore = create<TextureStoreState>((set, get) => ({
     set((state) => ({
       textures: [...state.textures],
     }));
-    if (texture.contentId) publishTextureDelete(texture.contentId);
     return result;
   },
 
@@ -452,29 +436,6 @@ export const findTextureByContentId = (contentId: string): CustomTexture | undef
   const persisted = useSettingsStore.getState().settings?.customTextures ?? [];
   return persisted.find((t) => t.contentId === contentId && !t.deletedAt);
 };
-
-/**
- * One-time migration: rehash legacy flat-path textures (imported before
- * replica sync shipped) into the per-bundle layout so they sync
- * across devices without forcing the user to re-import. Idempotent;
- * skips textures that already carry `contentId`. Implementation lives
- * in `migrateLegacyReplicas` — shared with custom fonts.
- */
-export const migrateLegacyTextures = (envConfig: EnvConfigType): Promise<void> =>
-  migrateLegacyReplicas<CustomTexture>(envConfig, {
-    kind: TEXTURE_KIND,
-    baseDir: 'Images',
-    getCandidates: () =>
-      useCustomTextureStore
-        .getState()
-        .textures.filter(
-          (t) => !t.contentId && !t.bundleDir && !t.deletedAt && !t.path.includes('/'),
-        ),
-    computeContentId: computeTextureContentId,
-    updateRecord: (id, next) => useCustomTextureStore.getState().updateTexture(id, next),
-    saveStore: (env) => useCustomTextureStore.getState().saveCustomTextures(env),
-    publishUpsert: publishTextureUpsert,
-  });
 
 // Cleanup blob URLs before page unload
 if (typeof window !== 'undefined') {

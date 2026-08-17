@@ -45,6 +45,9 @@ beforeEach(() => {
     }),
     generateCoverImageUrl: vi.fn(async () => 'blob:cover'),
     deleteBook: vi.fn(async () => {}),
+    // resolveLocalSource's managed-miss fallback lists the per-hash dir; default
+    // to empty so tests that exercise the no-source path keep resolving null.
+    readDirectory: vi.fn(async () => []),
   } as unknown as AppService;
   envConfig = { getAppService: async () => appService } as unknown as EnvConfigType;
 });
@@ -181,5 +184,69 @@ describe('createAppLocalStore — a stale filePath must not mask the managed cop
 
     expect(await makeStore().loadBookFile(makeBook('h1', { filePath: STALE }))).toBeNull();
     expect(await makeStore().resolveLocalBookPath(makeBook('h1', { filePath: STALE }))).toBeNull();
+  });
+});
+
+/**
+ * CBZ (and any zip-image format) has no OPF metadata, so DocumentLoader falls
+ * back to the raw file name for the title — `sourceTitle` keeps the extension
+ * (e.g. `情绪病 1-64 - bundle.cbz`). `getLocalBookFilename` appends its own
+ * extension on top, producing `…bundle.cbz.cbz`, which never matches what the
+ * importer wrote to `Books/<hash>/…bundle.cbz`. The managed probe then misses
+ * and — because a managed import leaves `filePath` null — the book is judged
+ * `no-source`, so the file never uploads and never earns `uploadedAt`.
+ */
+describe('createAppLocalStore — sourceTitle with extension must not hide the real file (CBZ)', () => {
+  const cbzBook = (hash = 'h1'): Book =>
+    makeBook(hash, {
+      format: 'CBZ',
+      title: '情绪病 1-64 - bundle',
+      sourceTitle: '情绪病 1-64 - bundle.cbz',
+    });
+  const REAL = '情绪病 1-64 - bundle.cbz';
+
+  beforeEach(() => {
+    // The reconstructed managed path (`h1/情绪病 1-64 - bundle.cbz.cbz`) misses.
+    appService.exists = vi.fn(async () => false);
+    appService.openFile = vi.fn(async () => new File([new Uint8Array(4)], REAL));
+    appService.resolveFilePath = vi.fn(async (path: string) => `/root/Books/${path}`);
+  });
+
+  test('resolveLocalBookPath finds the real cbz inside the per-hash dir', async () => {
+    appService.readDirectory = vi.fn(async () => [
+      { path: REAL, size: 100 },
+      { path: 'cover.png', size: 10 },
+      { path: 'config.json', size: 5 },
+    ]);
+
+    const src = await makeStore().resolveLocalBookPath(cbzBook());
+
+    expect(src).not.toBeNull();
+    expect(src!.path).toBe(`/root/Books/h1/${REAL}`);
+    expect(appService.readDirectory).toHaveBeenCalledWith('h1', 'Books');
+  });
+
+  test('loadBookFile reads the real cbz instead of reporting no-source', async () => {
+    appService.readDirectory = vi.fn(async () => [{ path: REAL, size: 100 }]);
+
+    const bytes = await makeStore().loadBookFile(cbzBook());
+
+    expect(bytes).not.toBeNull();
+    expect(appService.openFile).toHaveBeenCalledWith(`h1/${REAL}`, 'Books');
+  });
+
+  test('a dir holding no book file still resolves to no-source', async () => {
+    appService.readDirectory = vi.fn(async () => [{ path: 'cover.png', size: 10 }]);
+
+    expect(await makeStore().resolveLocalBookPath(cbzBook())).toBeNull();
+    expect(await makeStore().loadBookFile(cbzBook())).toBeNull();
+  });
+
+  test('an unreadable dir keeps the no-source verdict instead of throwing', async () => {
+    appService.readDirectory = vi.fn(async () => {
+      throw new Error('EACCES');
+    });
+
+    expect(await makeStore().resolveLocalBookPath(cbzBook())).toBeNull();
   });
 });

@@ -51,3 +51,10 @@ swift-rs = { path = "packages/swift-rs" }
 # UIApplicationSceneManifest is present - i.e. the CarPlay scene). See
 # packages/tao/src/platform_impl/ios/view.rs; worth an upstream PR.
 tao = { path = "packages/tao" }
+# turso_ext 0.6.1's build.rs gates the advapi32 link on `cfg!(target_os)`,
+# which reads the HOST platform — so cross-compiling to Android from a Windows
+# host wrongly asks the Android linker for the Windows library and fails with
+# `ld.lld: error: unable to find library -ladvapi32`. The vendored copy checks
+# `CARGO_CFG_TARGET_OS` (the target platform) instead. See
+# packages/turso_ext/build.rs; worth an upstream PR.
+turso_ext = { path = "packages/turso_ext" }

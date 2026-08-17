@@ -1,15 +1,4 @@
 import type { ReplicaRow } from '@/types/replica';
-import type { BaseDir, FileSystem } from '@/types/system';
-
-export interface BinaryCapability<T> {
-  localBaseDir: BaseDir;
-  enumerateFiles(replica: T): { logical: string; lfp: string; byteSize: number }[];
-}
-
-export interface LifecycleHooks<T> {
-  postDownload?(replica: T, fs: FileSystem): Promise<void>;
-  validateOnLoad?(replica: T, fs: FileSystem): Promise<{ unavailable?: boolean }>;
-}
 
 export interface ReplicaAdapter<T = unknown> {
   kind: string;
@@ -18,21 +7,12 @@ export interface ReplicaAdapter<T = unknown> {
   unpack(fields: Record<string, unknown>): T;
   computeId(input: T): Promise<string>;
   /**
-   * Build a local placeholder record from a pulled replica row. Used by
-   * the generic pull orchestrator to dispatch row → record translation
-   * without knowing the kind. Returns null when the row's fields are
-   * malformed (missing required fields). The bundleDir is the freshly-
-   * created (or reused) on-disk directory the binaries will land in.
+   * Build a local record from a pulled replica row. Used by the generic
+   * pull orchestrator to dispatch row → record translation without
+   * knowing the kind. Returns null when the row's fields are malformed
+   * (missing required fields).
    */
-  unpackRow(row: ReplicaRow, bundleDir: string): T | null;
-  /**
-   * Display label for the orchestrator's transfer-queue title. Defaults
-   * to the record's `name` field when unset; adapters override only if
-   * they want a different surface label.
-   */
-  getDisplayName?(record: T): string;
-  binary?: BinaryCapability<T>;
-  lifecycle?: LifecycleHooks<T>;
+  unpackRow(row: ReplicaRow): T | null;
   /**
    * Field names whose values are encrypted before push and decrypted
    * after pull. The publish/pull middleware handles the crypto round

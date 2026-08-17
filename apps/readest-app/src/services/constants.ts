@@ -41,8 +41,6 @@ import { DEFAULT_PARAGRAPH_GAP_SEC } from './tts/TTSController';
 
 export const DATA_SUBDIR = 'Readest';
 export const LOCAL_BOOKS_SUBDIR = `${DATA_SUBDIR}/Books`;
-export const CLOUD_BOOKS_SUBDIR = `${DATA_SUBDIR}/Books`;
-export const CLOUD_REPLICAS_SUBDIR = `${DATA_SUBDIR}/Replicas`;
 export const LOCAL_FONTS_SUBDIR = `${DATA_SUBDIR}/Fonts`;
 export const LOCAL_IMAGES_SUBDIR = `${DATA_SUBDIR}/Images`;
 export const LOCAL_DICTIONARIES_SUBDIR = `${DATA_SUBDIR}/Dictionaries`;
@@ -243,8 +241,6 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
     progress: true,
     note: true,
     dictionary: true,
-    font: true,
-    texture: true,
     opds_catalog: true,
     settings: true,
   },
@@ -880,27 +876,6 @@ export const DOWNLOAD_READEST_URL = 'https://readest.com?utm_source=readest_web'
 export const READEST_WEB_BASE_URL = 'https://web.readest.com';
 export const READEST_NODE_BASE_URL = 'https://node.readest.com';
 
-export const SHARE_BASE_URL = `${READEST_WEB_BASE_URL}/s`;
-export const SHARE_EXPIRATION_DAYS = [1, 3, 7] as const;
-
-// Send to Readest — the domain inbound capture emails are addressed to, the
-// R2 bucket holding raw inbound payloads, and the per-user cap on undrained
-// inbox items (defense against a leaked address).
-export const SEND_EMAIL_DOMAIN = 'readest.com';
-export const SEND_INBOX_BUCKET = 'readest-send-inbox';
-export const SEND_INBOX_PENDING_LIMIT = 50;
-// Hard cap on the size of a single uploaded EPUB the browser extension can
-// drop into the inbox. 30 MB is the same total-asset cap the client-side
-// bundler enforces — plus a bit of head-room for chapter HTML / structural
-// overhead. Beyond this size a clipped article is almost certainly an
-// over-illustrated page that would never read well in the EPUB anyway.
-export const SEND_INBOX_FILE_MAX_BYTES = 40 * 1024 * 1024;
-export const SHARE_DEFAULT_EXPIRATION_DAYS = 3;
-export const SHARE_MAX_PER_USER = 50;
-export const SHARE_TOKEN_LENGTH = 22;
-export const SHARE_PRESIGN_TTL_SECONDS = 300;
-export const SHARE_CFI_MAX_LENGTH = 512;
-
 const LATEST_DOWNLOAD_BASE_URL = 'https://download.readest.com/releases';
 
 export const READEST_UPDATER_FILE = `${LATEST_DOWNLOAD_BASE_URL}/latest.json`;
@@ -914,11 +889,6 @@ export const READEST_NIGHTLY_UPDATER_FILE = 'https://download.readest.com/nightl
 // AppImage / Android). Safe to embed — it is a public key.
 export const READEST_UPDATER_PUBKEY =
   'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFMEQ1QjE2OEU1NEIzNTEKUldSUnMxU09GbHNOdmpEaWFMT1crRFpEV2VORzQ2MklxaFc0M1R0ci9xY2c1bENXS0xhM1R1L2sK';
-
-export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.readest.com';
-// Custom domain serving the readest-public bucket; durable media assets
-// (e.g. published book covers) are linked through this host.
-export const READEST_PUBLIC_ASSETS_BASE_URL = 'https://assets.readest.com';
 
 export const READEST_OPDS_USER_AGENT = 'Readest/1.0 (OPDS Browser)';
 

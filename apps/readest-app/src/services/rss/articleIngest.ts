@@ -65,7 +65,6 @@ export async function openFeedArticle(params: OpenFeedArticleParams): Promise<Bo
       books,
       groupId: md5Fingerprint(feed.title),
       groupName: feed.title,
-      forceUpload: true,
     },
     { appService, settings, isLoggedIn },
   );

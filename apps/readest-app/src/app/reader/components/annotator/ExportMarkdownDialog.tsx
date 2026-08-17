@@ -149,7 +149,7 @@ const ExportMarkdownDialog: React.FC<ExportMarkdownDialogProps> = ({
     const book = getBookData(bookKey)?.book;
     if (!book) return;
     let cancelled = false;
-    getPublicCoverUrl(book, appService).then((url) => {
+    getPublicCoverUrl(book).then((url) => {
       if (!cancelled) setCoverImageUrl(url ?? null);
     });
     return () => {

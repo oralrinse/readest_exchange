@@ -27,7 +27,6 @@ const DEMO_URL = 'https://cdn.readest.com/books/the-great-gatsby.epub';
 const appService = vi.hoisted(() => ({
   saveLibraryBooks: vi.fn(async () => {}),
   generateCoverImageUrl: vi.fn(async () => 'blob:cover'),
-  downloadBookCovers: vi.fn(async () => {}),
 }));
 
 const syncState = vi.hoisted(() => ({
@@ -58,16 +57,11 @@ vi.mock('@/hooks/useSync', () => ({
 }));
 
 vi.mock('@/services/sync/cloudSyncProvider', () => ({
-  isReadestCloudEnabled: () => true,
   getActiveFileSyncBackends: () => [],
 }));
 
 vi.mock('@/services/sync/file/runLibrarySync', () => ({
   runFileLibrarySyncPass: vi.fn(async () => ({ booksSynced: 0 })),
-}));
-
-vi.mock('@/services/sync/fleetDetection', () => ({
-  checkMixedFleetOnce: vi.fn(),
 }));
 
 const { useBooksSync } = await import('@/app/library/hooks/useBooksSync');
@@ -144,12 +138,6 @@ describe('demo books and the cloud book channel (issue #5049)', () => {
 
     const library = useLibraryStore.getState().library;
     expect(library.find((book) => book.hash === 'demo-1')?.deletedAt).toBe(2000);
-    // The demo book's cover was never uploaded: refetching it would only wipe
-    // the local one, which is what left the resurrected books coverless.
-    const coverRefreshed = appService.downloadBookCovers.mock.calls.flatMap(
-      (call) => (call as unknown as [Book[]])[0],
-    );
-    expect(coverRefreshed.map((book) => book.hash)).not.toContain('demo-1');
     // The user's own book still merges as before.
     expect(library.find((book) => book.hash === 'mine-1')?.updatedAt).toBe(3000);
   });

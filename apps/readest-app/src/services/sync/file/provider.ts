@@ -48,6 +48,20 @@ export interface FileHead {
   etag?: string;
 }
 
+/**
+ * Byte-level progress of a streaming upload/download. Mirrors the Tauri
+ * `ProgressPayload` shape so a provider can pass the underlying transfer's
+ * payload straight through.
+ */
+export interface StreamProgress {
+  /** Bytes transferred so far. */
+  progress: number;
+  /** Total bytes of the transfer, or 0 when the length is unknown. */
+  total: number;
+  /** Rolling transfer speed in bytes/sec. */
+  transferSpeed: number;
+}
+
 export interface FileSyncProvider {
   /** Normalised root path: leading '/', no trailing slash (root === '/'). */
   readonly rootPath: string;
@@ -77,11 +91,25 @@ export interface FileSyncProvider {
    * remote URL + auth. Resolves `true` on success, `false` on a swallowed
    * failure. Absent on backends without a streaming primitive (e.g. web);
    * the engine then falls back to buffered {@link writeBinary}.
+   *
+   * `onProgress` receives byte-level progress while the transfer runs. It is
+   * emitted at a throttled rate (never per-chunk), so wiring it into the UI
+   * cannot trigger a render storm; pass it straight to the underlying
+   * transfer primitive when one exposes progress (Tauri's `upload_file` /
+   * `download_file` do).
    */
-  uploadStream?(remotePath: string, localPath: string): Promise<boolean>;
+  uploadStream?(
+    remotePath: string,
+    localPath: string,
+    onProgress?: (p: StreamProgress) => void,
+  ): Promise<boolean>;
   /**
    * Optional streaming download: GET `remotePath` straight to `localPath`.
    * Same ownership + fallback rules as {@link uploadStream}.
    */
-  downloadStream?(remotePath: string, localPath: string): Promise<boolean>;
+  downloadStream?(
+    remotePath: string,
+    localPath: string,
+    onProgress?: (p: StreamProgress) => void,
+  ): Promise<boolean>;
 }

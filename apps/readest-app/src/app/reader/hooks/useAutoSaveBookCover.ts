@@ -111,8 +111,7 @@ async function tryWriteFullCoverFromBook(
      * we keep the user-supplied path on the Book record and must resolve
      * against it (with base `None`) rather than the synthetic
      * `Books/<hash>/<title>.<ext>` path `getLocalBookFilename` builds.
-     * Mirrors the same in-place handling in `useFileSync.pushBookFileNow`
-     * and `cloudService.uploadBook`.
+     * Mirrors the same in-place handling in `useFileSync.pushBookFileNow`.
      */
     filePath?: string;
   },

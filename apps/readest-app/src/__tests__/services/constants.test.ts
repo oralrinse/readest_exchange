@@ -13,7 +13,6 @@ vi.mock('@/utils/misc', () => ({
 import {
   DATA_SUBDIR,
   LOCAL_BOOKS_SUBDIR,
-  CLOUD_BOOKS_SUBDIR,
   LOCAL_FONTS_SUBDIR,
   LOCAL_IMAGES_SUBDIR,
   SETTINGS_FILENAME,
@@ -69,7 +68,6 @@ import {
   READEST_NODE_BASE_URL,
   READEST_UPDATER_FILE,
   READEST_CHANGELOG_FILE,
-  READEST_PUBLIC_STORAGE_BASE_URL,
   READEST_OPDS_USER_AGENT,
   SYNC_PROGRESS_INTERVAL_SEC,
   SYNC_NOTES_INTERVAL_SEC,
@@ -104,10 +102,6 @@ describe('services/constants', () => {
 
     it('LOCAL_BOOKS_SUBDIR contains DATA_SUBDIR', () => {
       expect(LOCAL_BOOKS_SUBDIR).toContain(DATA_SUBDIR);
-    });
-
-    it('CLOUD_BOOKS_SUBDIR contains DATA_SUBDIR', () => {
-      expect(CLOUD_BOOKS_SUBDIR).toContain(DATA_SUBDIR);
     });
 
     it('LOCAL_FONTS_SUBDIR contains DATA_SUBDIR', () => {
@@ -249,8 +243,6 @@ describe('services/constants', () => {
         progress: true,
         note: true,
         dictionary: true,
-        font: true,
-        texture: true,
         opds_catalog: true,
         settings: true,
       });
@@ -893,10 +885,6 @@ describe('services/constants', () => {
     it('READEST_CHANGELOG_FILE is a URL ending with .json', () => {
       expect(READEST_CHANGELOG_FILE).toMatch(/^https:\/\//);
       expect(READEST_CHANGELOG_FILE).toMatch(/\.json$/);
-    });
-
-    it('READEST_PUBLIC_STORAGE_BASE_URL is a valid URL', () => {
-      expect(READEST_PUBLIC_STORAGE_BASE_URL).toMatch(/^https:\/\//);
     });
 
     it('READEST_OPDS_USER_AGENT is a non-empty string', () => {

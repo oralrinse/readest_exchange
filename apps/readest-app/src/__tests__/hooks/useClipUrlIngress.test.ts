@@ -83,14 +83,18 @@ describe('useClipUrlIngress share-extension pending saves', () => {
 });
 
 describe('useClipUrlIngress deep-link routing', () => {
-  it('does NOT run the article clipper on share deep links', async () => {
+  it('no longer special-cases legacy /s share links (share landing removed)', async () => {
     renderHook(() => useClipUrlIngress());
     await eventDispatcher.dispatch('app-incoming-url', {
       urls: ['https://web.readest.com/s/Qmup0X1A8ovl2FmKJKA8mB'],
     });
     await Promise.resolve();
-    // Share links belong to useOpenShareLink; the clipper must leave them alone.
-    expect(invokeMock).not.toHaveBeenCalled();
+    // Readest Cloud share links were removed — the /s route no longer
+    // exists, so the clipper treats the URL like any other http(s) link.
+    expect(invokeMock).toHaveBeenCalledWith(
+      'clip_url',
+      expect.objectContaining({ url: 'https://web.readest.com/s/Qmup0X1A8ovl2FmKJKA8mB' }),
+    );
   });
 
   it('still clips ordinary article URLs', async () => {

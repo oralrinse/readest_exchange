@@ -1,5 +1,5 @@
 import { SystemSettings } from '@/types/settings';
-import { FileSystem, AppPlatform, BaseDir, OsPlatform } from '@/types/system';
+import { FileSystem, AppPlatform, BaseDir, OsPlatform, DeleteAction } from '@/types/system';
 import {
   Book,
   BookConfig,
@@ -776,6 +776,68 @@ export async function getBookFileSize(fs: FileSystem, book: Book): Promise<numbe
   return size;
 }
 
+/**
+ * Delete a book's local data. Readest Cloud storage was removed, so there is
+ * no remote half — the metadata tombstone (deletedAt) and any stale
+ * `uploadedAt` marker are the caller's job (the library page clears them and
+ * pushes via the account sync).
+ */
+export async function deleteBook(
+  fs: FileSystem,
+  book: Book,
+  deleteAction: DeleteAction,
+): Promise<void> {
+  if (deleteAction === 'local' || deleteAction === 'both' || deleteAction === 'purge') {
+    const source = await resolveBookContentSource(fs, book);
+    // Only remove files Readest itself created. A 'managed' source lives under
+    // our Books/<hash>/ dir (a copy we made on import), so it is ours to delete.
+    // An 'external' source is the user's own file at a user-controlled location
+    // (book.filePath, base 'None') — e.g. a "Read books in place" import or a
+    // transiently-opened file. Deleting a book from Readest must NEVER remove
+    // that source file; doing so silently destroyed users' originals.
+    if (source.kind === 'managed' && deleteAction !== 'purge') {
+      // Purge wipes the whole directory below, so skip the per-file removal.
+      if (await fs.exists(source.path, source.base)) {
+        await fs.removeFile(source.path, source.base);
+      }
+    }
+
+    // Purge erases the entire app-generated Books/<hash>/ directory — the
+    // managed book file, cover.png, and (the reason for issue #4615)
+    // config.json (reading progress, notes, bookmarks) + nav.json that the
+    // other delete actions leave behind. In-place books keep their external
+    // source file untouched; this only clears Readest's own sidecar dir.
+    if (deleteAction === 'purge') {
+      const dir = getDir(book);
+      if (await fs.exists(dir, 'Books')) {
+        await fs.removeDir(dir, 'Books', true);
+      }
+      // The per-book TTS audio cache lives under Cache (kept out of Books/
+      // so backups and sync never pick it up); purge erases every trace of
+      // the book, so drop it too. Non-purge deletes leave it: like
+      // config.json, a re-downloaded book resumes with a warm audio cache.
+      const ttsCacheDir = `tts-cache/${book.hash}`;
+      if (await fs.exists(ttsCacheDir, 'Cache')) {
+        await fs.removeDir(ttsCacheDir, 'Cache', true);
+      }
+    }
+
+    if (deleteAction === 'both' && (await fs.exists(getCoverFilename(book), 'Books'))) {
+      await fs.removeFile(getCoverFilename(book), 'Books');
+    }
+    if (deleteAction === 'local' || deleteAction === 'purge') {
+      // Mirror 'local': mark not-downloaded but leave the tombstone (deletedAt)
+      // to the caller. The page's handleBookDelete sets deletedAt, exactly as it
+      // does for the 'both' action.
+      book.downloadedAt = null;
+    } else {
+      book.deletedAt = Date.now();
+      book.downloadedAt = null;
+      book.coverDownloadedAt = null;
+    }
+  }
+}
+
 async function openBookFileContent(
   fs: FileSystem,
   book: Book,
@@ -875,15 +937,7 @@ export async function saveBookNav(fs: FileSystem, book: Book, nav: BookNav): Pro
   await fs.writeFile(getBookNavFilename(book), 'Books', JSON.stringify(nav));
 }
 
-export async function fetchBookDetails(
-  fs: FileSystem,
-  book: Book,
-  downloadBookFn: (book: Book) => Promise<void>,
-): Promise<BookDoc['metadata']> {
-  const fp = getLocalBookFilename(book);
-  if (!(await fs.exists(fp, 'Books')) && book.uploadedAt) {
-    await downloadBookFn(book);
-  }
+export async function fetchBookDetails(fs: FileSystem, book: Book): Promise<BookDoc['metadata']> {
   const { file } = await loadBookContent(fs, book);
   let bookDoc: BookDoc | undefined;
   try {

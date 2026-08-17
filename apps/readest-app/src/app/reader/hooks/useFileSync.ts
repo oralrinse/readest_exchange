@@ -29,9 +29,9 @@ import { useWindowActiveChanged } from './useWindowActiveChanged';
  *
  * Cloud sync providers are independently selectable (#5062): several
  * third-party backends (WebDAV, Google Drive, S3, OneDrive) can mirror a
- * book's progress and annotations in parallel, alongside (or instead of)
- * Readest Cloud, whose native progress sync is `useProgressSync`'s job, not
- * this hook's, and runs independently.
+ * book's progress and annotations in parallel. The account channel's native
+ * progress sync is `useProgressSync`'s job, not this hook's, and runs
+ * independently.
  *
  * The hook is called exactly once per book (React forbids a variable hook
  * count), so every scalar the single-backend version used to hold —
@@ -105,8 +105,8 @@ export const useFileSync = (bookKey: string) => {
   const progress = useBookProgress(bookKey);
 
   // Every enabled third-party backend syncs this book in parallel (#5062);
-  // Readest Cloud's native progress sync is useProgressSync's job, not this
-  // hook's, and runs independently.
+  // the account channel's native progress sync is useProgressSync's job, not
+  // this hook's, and runs independently.
   const activeKinds = useMemo(() => getActiveFileSyncBackends(settings), [settings]);
 
   /** Flips true on the first local change after a push, false right before each push. */

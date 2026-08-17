@@ -61,8 +61,6 @@ import Spinner from '@/components/Spinner';
 import ModalPortal from '@/components/ModalPortal';
 import BookshelfItem, { generateBookshelfItems } from './BookshelfItem';
 import SelectModeActions from './SelectModeActions';
-import ShareBookDialog from './ShareBookDialog';
-import { useAuth } from '@/context/AuthContext';
 import GroupingModal from './GroupingModal';
 import SetStatusAlert from './SetStatusAlert';
 import RecentShelf, { RECENT_SHELF_BOOK_COUNT } from './RecentShelf';
@@ -92,7 +90,6 @@ interface BookshelfProps {
   handleShowDetailsBook: (book: Book) => void;
   handleLibraryNavigation: (targetGroup: string) => void;
   handlePushLibrary: () => Promise<void>;
-  booksTransferProgress: { [key: string]: number | null };
   contentSearch: ContentSearchRequest | null;
   onSearchContents: () => void;
   onSearchProgress?: (value: number | null) => void;
@@ -194,7 +191,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   handleShowDetailsBook,
   handleLibraryNavigation,
   handlePushLibrary,
-  booksTransferProgress,
   contentSearch,
   onSearchContents,
   onSearchProgress,
@@ -676,31 +672,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     };
   }, []);
 
-  const { user } = useAuth();
-  const [shareDialogBook, setShareDialogBook] = useState<Book | null>(null);
-
-  useEffect(() => {
-    const handleShareIntent = (event: CustomEvent) => {
-      const book = (event.detail as { book?: Book } | undefined)?.book;
-      if (!book) return;
-      if (!user) {
-        // Logged-out users can't share their own files; route through the
-        // login flow instead. The /auth route preserves a return path.
-        eventDispatcher.dispatch('toast', {
-          type: 'info',
-          message: _('Sign in to share books'),
-          timeout: 2500,
-        });
-        return;
-      }
-      setShareDialogBook(book);
-    };
-    eventDispatcher.on('show-share-dialog', handleShareIntent);
-    return () => {
-      eventDispatcher.off('show-share-dialog', handleShareIntent);
-    };
-  }, [user, _]);
-
   // OverlayScrollbars + Virtuoso integration: Virtuoso manages its own
   // scroller; OverlayScrollbars wraps it for overlay scrollbar rendering.
   const osRootRef = useRef<HTMLDivElement>(null);
@@ -748,9 +719,8 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     const books = downloadableBooks;
     if (books.length === 0) return;
     handleSetSelectMode(false);
-    // One summary up front rather than a toast per book: the Readest Cloud
-    // path returns as soon as each book is queued, but a file backend
-    // actually fetches them, and either way the user needs immediate feedback
+    // One summary up front rather than a toast per book: the file backend
+    // fetches each book asynchronously, and the user needs immediate feedback
     // that the batch started.
     eventDispatcher.dispatch('toast', {
       type: 'info',
@@ -920,9 +890,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
           handleShowDetailsBook={handleShowDetailsBook}
           handleLibraryNavigation={handleLibraryNavigation}
           handleUpdateReadingStatus={handleUpdateReadingStatus}
-          transferProgress={
-            'hash' in item ? booksTransferProgress[(item as Book).hash] || null : null
-          }
+          transferProgress={null}
           showTimeRemaining={showTimeRemaining}
         />
       );
@@ -935,7 +903,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
       viewMode,
       coverFit,
       isSelectMode,
-      booksTransferProgress,
       iconSize15,
       handleImportBooks,
       toggleSelection,
@@ -1108,11 +1075,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
           onUpdateStatus={updateBooksStatus}
         />
       )}
-      <ShareBookDialog
-        isOpen={!!shareDialogBook}
-        book={shareDialogBook}
-        onClose={() => setShareDialogBook(null)}
-      />
     </div>
   );
 };

@@ -165,7 +165,17 @@ pub async fn download_file(
 
     const PART_SIZE: u64 = 1024 * 1024;
 
+    // A black-holed link (TCP established, but the peer stops sending) would
+    // otherwise hang the transfer forever and, from the JS side, look like the
+    // sync button spinning forever — the engine's `await` never resolves and
+    // `endSync` never runs. `connect_timeout` bounds the handshake; `read_timeout`
+    // bounds a stall between stream chunks. Both are safe for multi-GB payloads:
+    // they only fire on *idle* time, not total elapsed time, so a slow-but-alive
+    // 1.1 GB CBZ never trips them. (The JS layer still gets byte progress via
+    // `on_progress`, and the WebDAV provider wraps this in its own fallback.)
     let client = reqwest::ClientBuilder::new()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(120))
         .danger_accept_invalid_certs(skip_ssl_verification.unwrap_or(false))
         .danger_accept_invalid_hostnames(skip_ssl_verification.unwrap_or(false))
         .build()?;
@@ -339,7 +349,14 @@ pub async fn upload_file(
     let file = File::open(file_path).await?;
     let file_len = file.metadata().await.unwrap().len();
 
-    let client = reqwest::Client::new();
+    // Same black-hole protection as `download_file`: bound the connect and any
+    // read stall so a dead link surfaces as an error instead of spinning the
+    // sync UI forever. `read_timeout` only fires on idle time, so uploading a
+    // multi-GB book over a slow-but-live link is unaffected.
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(120))
+        .build()?;
     let mut request = match method.to_uppercase().as_str() {
         "POST" => client.post(url),
         "PUT" => client.put(url),

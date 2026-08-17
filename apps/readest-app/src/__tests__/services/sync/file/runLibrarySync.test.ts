@@ -81,7 +81,6 @@ const envConfig = {
 
 const multiProviderSettings = {
   version: 1,
-  readestCloud: { enabled: false },
   webdav: {
     enabled: true,
     serverUrl: 'https://dav',

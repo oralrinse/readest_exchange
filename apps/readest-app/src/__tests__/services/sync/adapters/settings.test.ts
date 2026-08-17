@@ -54,10 +54,6 @@ describe('settingsAdapter', () => {
     expect([...SETTINGS_DICTIONARY_FIELDS].sort()).toEqual(whitelistedDictPaths.slice().sort());
   });
 
-  test('declares no `binary` capability — bundled metadata only', () => {
-    expect(settingsAdapter.binary).toBeUndefined();
-  });
-
   test('computeId always returns the singleton id', async () => {
     expect(await settingsAdapter.computeId({ name: 'singleton', patch: {} })).toBe('singleton');
   });
@@ -207,7 +203,7 @@ describe('settingsAdapter', () => {
     const row = makeRow({
       'kosync.customHeaders': env(JSON.stringify({ 'CF-Access-Client-Id': 'client-id' })),
     });
-    const out = settingsAdapter.unpackRow(row, '');
+    const out = settingsAdapter.unpackRow(row);
     expect(out).not.toBeNull();
     expect(out!.patch.kosync?.customHeaders).toEqual({ 'CF-Access-Client-Id': 'client-id' });
   });
@@ -249,7 +245,7 @@ describe('settingsAdapter', () => {
     const row = makeRow({
       'bookorbit.customHeaders': env(JSON.stringify({ 'CF-Access-Client-Id': 'client-id' })),
     });
-    const out = settingsAdapter.unpackRow(row, '');
+    const out = settingsAdapter.unpackRow(row);
     expect(out).not.toBeNull();
     expect(out!.patch.bookorbit?.customHeaders).toEqual({ 'CF-Access-Client-Id': 'client-id' });
   });
@@ -309,7 +305,7 @@ describe('settingsAdapter', () => {
       'globalReadSettings.userHighlightColors': env(userColors),
       'kosync.serverUrl': env('https://kosync.example'),
     });
-    const out = settingsAdapter.unpackRow(row, '');
+    const out = settingsAdapter.unpackRow(row);
     expect(out).not.toBeNull();
     expect(out!.name).toBe('singleton');
     expect(out!.patch.globalReadSettings?.userHighlightColors).toEqual(userColors);
@@ -318,7 +314,7 @@ describe('settingsAdapter', () => {
 
   test('unpackRow returns null when the row carries no whitelisted fields', () => {
     const row = makeRow({ unknownField: env('garbage') });
-    expect(settingsAdapter.unpackRow(row, '')).toBeNull();
+    expect(settingsAdapter.unpackRow(row)).toBeNull();
   });
 });
 
@@ -419,7 +415,7 @@ describe('settingsAdapter proofread rules', () => {
       },
     ];
     const row = makeRow({ 'globalViewSettings.proofreadRules': env(proofreadRules) });
-    const out = settingsAdapter.unpackRow(row, '');
+    const out = settingsAdapter.unpackRow(row);
     expect(out).not.toBeNull();
     expect(out!.patch.globalViewSettings?.proofreadRules).toEqual(proofreadRules);
   });

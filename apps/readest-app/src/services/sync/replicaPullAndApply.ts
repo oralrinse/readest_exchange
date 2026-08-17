@@ -1,7 +1,5 @@
 import { isReplicaRowAlive } from '@/libs/replicaInterpret';
 import type { ReplicaRow } from '@/types/replica';
-import type { ReplicaTransferFile } from '@/store/transferStore';
-import type { BaseDir } from '@/types/system';
 import type { ReplicaAdapter } from './replicaRegistry';
 import {
   captureCipherTexts,
@@ -16,12 +14,6 @@ import { isCredentialsSyncEnabled } from './syncCategories';
 import { cryptoSession } from '@/libs/crypto/session';
 
 export interface ReplicaLocalRecord {
-  /**
-   * Per-record on-disk directory under the kind's base. Required for
-   * sync-era records; legacy entries (created before replica sync) may
-   * have it unset and the orchestrator treats them as non-syncable.
-   */
-  bundleDir?: string;
   name: string;
   deletedAt?: number;
   /**
@@ -33,7 +25,7 @@ export interface ReplicaLocalRecord {
 }
 
 export interface PullAndApplyDeps<T extends ReplicaLocalRecord> {
-  /** Replica adapter for this kind. Provides unpackRow + binary base dir. */
+  /** Replica adapter for this kind. Provides unpackRow. */
   adapter: ReplicaAdapter<T>;
   /** Pulls rows for this kind. Boot caller passes since=null for full sync. */
   pull(): Promise<ReplicaRow[]>;
@@ -49,49 +41,12 @@ export interface PullAndApplyDeps<T extends ReplicaLocalRecord> {
    */
   softDeleteByContentId(contentId: string): void;
   /**
-   * Mints a fresh local bundleDir, creates the directory on disk under
-   * the kind's base dir, returns the directory name (relative).
-   */
-  createBundleDir(): Promise<string>;
-  /**
-   * Hands the manifest's binary files off to TransferManager for
-   * download. Returns the transfer id (or null if the queue isn't
-   * ready). Caller arguments mirror transferManager.queueReplicaDownload.
-   */
-  queueReplicaDownload(
-    contentId: string,
-    displayTitle: string,
-    files: ReplicaTransferFile[],
-    bundleDir: string,
-    base: BaseDir,
-  ): string | null;
-  /**
-   * Returns true iff EVERY filename exists on disk under
-   * `<bundleDir>/<filename>` in the kind's base dir. Lets the
-   * orchestrator skip the download queue when the binaries from a
-   * previous session are still around.
-   */
-  filesExist(bundleDir: string, filenames: string[]): Promise<boolean>;
-  /**
    * Hydrates the local store from disk before the orchestrator queries
    * findByContentId. Without this, applyRemote's auto-persist round-
    * trip overwrites persisted entries that hadn't yet been pulled into
    * the in-memory store by a feature mount.
    */
   hydrateLocalStore?(): Promise<void>;
-  /**
-   * Reconciliation hook for "server has the row but no manifest, and
-   * we're the device with the local binaries". The orchestrator
-   * invokes this when applyRow finds an alive row with empty
-   * `manifest_jsonb` AND a matching local record. Implementation
-   * should fan out to the binary-upload pipeline (typically
-   * `queueReplicaBinaryUpload(kind, record, appService)`), which in
-   * turn fires `replica-transfer-complete` and commits the manifest.
-   * Without this, transient upload failures or "TM not ready at
-   * import time" leave the server row stuck with manifest_jsonb=null
-   * forever — a refresh wouldn't recover it.
-   */
-  queueLocalBinaryUpload?(record: T): Promise<void>;
   /**
    * Optional auth precheck. When provided and resolves to false, the
    * orchestrator skips the entire pull (no network call, no warnings).
@@ -120,16 +75,6 @@ export interface PullAndApplyDeps<T extends ReplicaLocalRecord> {
    */
   onSaltNotFound?(paths: readonly string[]): void;
 }
-
-const MANIFEST_FILE_TO_TRANSFER = (
-  filename: string,
-  byteSize: number,
-  bundleDir: string,
-): ReplicaTransferFile => ({
-  logical: filename,
-  lfp: `${bundleDir}/${filename}`,
-  byteSize,
-});
 
 const applyRow = async <T extends ReplicaLocalRecord>(
   row: ReplicaRow,
@@ -207,91 +152,23 @@ const applyRow = async <T extends ReplicaLocalRecord>(
 
   if (!alive) {
     // Always invoke softDeleteByContentId on a tombstoned row, even
-    // when no local record matches. The dict store uses this hook to
-    // scrub companion state (dictionarySettings.providerOrder /
-    // providerEnabled) that may have been seeded by the settings
-    // replica without a matching local row — a fresh device often hits
-    // this path because the settings replica lands before the dict
-    // replica, and a contentId may be referenced in providerEnabled
-    // even though its dict row arrives tombstoned. Other kinds (font,
-    // texture, opds_catalog) self-no-op when no local exists, so the
-    // unconditional call is safe.
+    // when no local record matches. Kinds that seed companion state
+    // from a separate replica use this hook to scrub it; others
+    // self-no-op when no local exists, so the unconditional call is
+    // safe.
     deps.softDeleteByContentId(row.replica_id);
     return;
   }
 
-  // Decide bundleDir + display name. If a local entry already maps this
-  // contentId, reuse its bundleDir so we don't orphan the previously
-  // downloaded binaries; otherwise mint a fresh dir and apply the remote
-  // record to the local store. Legacy binary-kind records (pre-replica-
-  // sync) may carry no bundleDir — skip them; they aren't sync-eligible.
-  // Metadata-only kinds (no `binary` capability, e.g. opds_catalog) have
-  // no on-disk anchor at all, so the bundleDir requirement is dropped.
-  const needsBundleDir = !!deps.adapter.binary;
-  let bundleDir: string;
-  let displayName: string;
-  if (local) {
-    if (needsBundleDir && !local.bundleDir) return;
-    bundleDir = local.bundleDir ?? '';
-    displayName = deps.adapter.getDisplayName?.(local) ?? local.name;
-    // For metadata-only kinds, always re-apply the unpacked row so
-    // per-field updates merge into the local copy: renames pushed
-    // from another device, newly-decrypted credentials that weren't
-    // available on the previous pull (session was locked then), etc.
-    // The store's applyRemote merge preserves identity-stable local
-    // state. Binary kinds keep the skip-rebuild semantic so we don't
-    // re-download files we already have.
-    if (!needsBundleDir) {
-      const record = deps.adapter.unpackRow(row, bundleDir);
-      if (record) {
-        if (mergedLastSeen) record.lastSeenCipher = mergedLastSeen;
-        deps.applyRemote(record);
-      }
-    }
-  } else {
-    bundleDir = needsBundleDir ? await deps.createBundleDir() : '';
-    const record = deps.adapter.unpackRow(row, bundleDir);
-    if (!record) return;
-    if (mergedLastSeen) record.lastSeenCipher = mergedLastSeen;
-    deps.applyRemote(record);
-    displayName = deps.adapter.getDisplayName?.(record) ?? record.name;
-  }
-
-  // Metadata-only kinds: nothing more to do. The orchestrator's manifest
-  // / binary-download path is a no-op for them.
-  if (!needsBundleDir) return;
-
-  if (!row.manifest_jsonb || row.manifest_jsonb.files.length === 0) {
-    // Server row has no manifest yet — typically the device that
-    // wrote the metadata never finished the binary upload (TM wasn't
-    // ready, transient failure, app close mid-upload). If we're the
-    // device with the local copy, push the binaries now so the
-    // manifest commits via replica-transfer-complete.
-    if (local && deps.queueLocalBinaryUpload) {
-      await deps.queueLocalBinaryUpload(local);
-    }
-    return;
-  }
-  if (!deps.adapter.binary) return;
-
-  // Skip the download queue if every manifest file is already on disk
-  // under the resolved bundle dir. Refresh-the-page is a no-op rather
-  // than a re-download; partial-download recovery still queues because
-  // some files would be missing.
-  const filenames = row.manifest_jsonb.files.map((f) => f.filename);
-  const allPresent = await deps.filesExist(bundleDir, filenames);
-  if (allPresent) return;
-
-  const files = row.manifest_jsonb.files.map((f) =>
-    MANIFEST_FILE_TO_TRANSFER(f.filename, f.byteSize, bundleDir),
-  );
-  deps.queueReplicaDownload(
-    row.replica_id,
-    displayName,
-    files,
-    bundleDir,
-    deps.adapter.binary.localBaseDir,
-  );
+  // Metadata-only kinds: always re-apply the unpacked row so per-field
+  // updates merge into the local copy: renames pushed from another
+  // device, newly-decrypted credentials that weren't available on the
+  // previous pull (session was locked then), etc. The store's
+  // applyRemote merge preserves identity-stable local state.
+  const record = deps.adapter.unpackRow(row);
+  if (!record) return;
+  if (mergedLastSeen) record.lastSeenCipher = mergedLastSeen;
+  deps.applyRemote(record);
 };
 
 /**
@@ -299,9 +176,8 @@ const applyRow = async <T extends ReplicaLocalRecord>(
  * the last cursor advance and applies each via applyRow. Errors per
  * row are isolated — one bad row never blocks the others.
  *
- * The dictionary adapter and (future) font / texture adapters share
- * this orchestrator; per-kind translation lives entirely in the
- * adapter's unpackRow + binary capability.
+ * The opds_catalog and settings adapters share this orchestrator;
+ * per-kind translation lives entirely in the adapter's unpackRow.
  */
 export const replicaPullAndApply = async <T extends ReplicaLocalRecord>(
   deps: PullAndApplyDeps<T>,

@@ -18,7 +18,6 @@ import type { Book } from '@/types/book';
 const appService = vi.hoisted(() => ({
   saveLibraryBooks: vi.fn(async () => {}),
   generateCoverImageUrl: vi.fn(async () => 'blob:cover'),
-  downloadBookCovers: vi.fn(async () => {}),
 }));
 
 const ensureFeedBookCover = vi.hoisted(() =>
@@ -53,16 +52,11 @@ vi.mock('@/hooks/useSync', () => ({
 }));
 
 vi.mock('@/services/sync/cloudSyncProvider', () => ({
-  isReadestCloudEnabled: () => true,
   getActiveFileSyncBackends: () => [],
 }));
 
 vi.mock('@/services/sync/file/runLibrarySync', () => ({
   runFileLibrarySyncPass: vi.fn(async () => ({ booksSynced: 0 })),
-}));
-
-vi.mock('@/services/sync/fleetDetection', () => ({
-  checkMixedFleetOnce: vi.fn(),
 }));
 
 vi.mock('@/services/rss/feedBook', () => ({ ensureFeedBookCover }));

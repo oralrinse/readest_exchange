@@ -52,10 +52,6 @@ describe('opdsCatalogAdapter', () => {
     expect(OPDS_CATALOG_SCHEMA_VERSION).toBe(1);
   });
 
-  test('declares no `binary` capability — metadata-only kind', () => {
-    expect(opdsCatalogAdapter.binary).toBeUndefined();
-  });
-
   test('pack passes username + password through as plaintext (middleware encrypts)', () => {
     const withCreds: OPDSCatalog = { ...sample, username: 'alice', password: 'hunter2' };
     const fields = opdsCatalogAdapter.pack(withCreds);
@@ -92,7 +88,7 @@ describe('opdsCatalogAdapter', () => {
 
   test('unpackRow rebuilds the catalog from CRDT envelopes', () => {
     const row = makeRow();
-    const out = opdsCatalogAdapter.unpackRow(row, '');
+    const out = opdsCatalogAdapter.unpackRow(row);
     expect(out).not.toBeNull();
     expect(out!.id).toBe('cid');
     expect(out!.contentId).toBe('cid');
@@ -103,15 +99,15 @@ describe('opdsCatalogAdapter', () => {
 
   test('unpackRow returns null when name or url is missing', () => {
     const noName = makeRow({ fields_jsonb: { url: env('https://x') } });
-    expect(opdsCatalogAdapter.unpackRow(noName, '')).toBeNull();
+    expect(opdsCatalogAdapter.unpackRow(noName)).toBeNull();
 
     const noUrl = makeRow({ fields_jsonb: { name: env('x') } });
-    expect(opdsCatalogAdapter.unpackRow(noUrl, '')).toBeNull();
+    expect(opdsCatalogAdapter.unpackRow(noUrl)).toBeNull();
   });
 
   test('unpackRow surfaces the reincarnation token', () => {
     const row = makeRow({ reincarnation: 'rev1' });
-    const out = opdsCatalogAdapter.unpackRow(row, '');
+    const out = opdsCatalogAdapter.unpackRow(row);
     expect(out!.reincarnation).toBe('rev1');
   });
 });

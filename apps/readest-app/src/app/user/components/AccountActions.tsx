@@ -49,8 +49,6 @@ interface AccountActionsProps {
   onUpdateEmail: () => void;
   onConfirmDelete: () => void;
   onConfirmDeleteAllBooks: () => void;
-  onManageStorage?: () => void;
-  onManageSharedLinks?: () => void;
   onManageSync?: () => void;
 }
 
@@ -60,8 +58,6 @@ const AccountActions: React.FC<AccountActionsProps> = ({
   onUpdateEmail,
   onConfirmDelete,
   onConfirmDeleteAllBooks,
-  onManageStorage,
-  onManageSharedLinks,
   onManageSync,
 }) => {
   const _ = useTranslation();
@@ -78,7 +74,7 @@ const AccountActions: React.FC<AccountActionsProps> = ({
     books: {
       title: _('Delete All Books?'),
       message: _(
-        'This action cannot be undone. Every book will be removed from this device and from your Readest cloud library, along with reading progress, bookmarks, and annotations. Books you imported in place keep their original files, and books uploaded to cloud storage stay there until you remove them under Manage Storage. Other signed-in devices keep their own copies.',
+        'This action cannot be undone. Every book will be removed from this device and from your synced library, along with reading progress, bookmarks, and annotations. Books you imported in place keep their original files. Other signed-in devices keep their own copies.',
       ),
       onConfirm: onConfirmDeleteAllBooks,
     },
@@ -104,22 +100,6 @@ const AccountActions: React.FC<AccountActionsProps> = ({
             className='w-full rounded-lg bg-blue-100 px-6 py-3 font-medium text-blue-600 transition-colors hover:bg-blue-200 md:w-auto'
           >
             {_('Manage Sync')}
-          </button>
-        )}
-        {onManageStorage && (
-          <button
-            onClick={onManageStorage}
-            className='w-full rounded-lg bg-purple-100 px-6 py-3 font-medium text-purple-600 transition-colors hover:bg-purple-200 md:w-auto'
-          >
-            {_('Manage Storage')}
-          </button>
-        )}
-        {onManageSharedLinks && (
-          <button
-            onClick={onManageSharedLinks}
-            className='w-full rounded-lg bg-purple-100 px-6 py-3 font-medium text-purple-600 transition-colors hover:bg-purple-200 md:w-auto'
-          >
-            {_('Manage Shared Links')}
           </button>
         )}
         <button

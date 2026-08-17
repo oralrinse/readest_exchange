@@ -18,25 +18,12 @@ import { broadcastGlobalSettings } from '@/utils/settingsSync';
  * `syncBooks` on and stamps `providerSelectedAt`: checking a provider means
  * "mirror my library here". An explicit `syncBooks` opt-out while the provider
  * stays on is respected — a redundant re-activation changes nothing.
- *
- * Switching Readest Cloud OFF stamps `readestCloud.disabledAt`, the anchor for
- * mixed-fleet detection ("when did this device stop writing native rows").
  */
 export const withCloudProviderEnabled = (
   settings: SystemSettings,
   kind: CloudSyncProviderKind,
   enabled: boolean,
 ): SystemSettings => {
-  if (kind === 'readest') {
-    return {
-      ...settings,
-      readestCloud: {
-        ...settings.readestCloud,
-        enabled,
-        disabledAt: enabled ? undefined : Date.now(),
-      },
-    };
-  }
   const key = settingsKeyForBackend(kind);
   const slice = settings[key];
   const activating = enabled && !slice?.enabled;

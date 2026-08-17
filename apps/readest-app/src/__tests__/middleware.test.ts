@@ -38,14 +38,15 @@ describe('middleware CORS preflight', () => {
 });
 
 describe('middleware cross-origin isolation headers', () => {
-  it('serves COEP credentialless on the /s share landing so the R2 cover <img> loads', () => {
-    // The cover redirects to a cross-origin R2 URL that can't carry a CORP
-    // header; credentialless keeps the page isolated while allowing it.
-    expect(coep('/s')).toBe('credentialless');
-    expect(coep('/s/Qmup0X1A8ovl2FmKJKA8mB')).toBe('credentialless');
+  it('applies require-corp on every document route (no /s share landing anymore)', () => {
+    // Readest Cloud share links were removed — the /s landing that needed
+    // COEP credentialless for its cross-origin R2 cover <img> is gone, so
+    // every document route gets the same require-corp.
+    expect(coep('/s')).toBe('require-corp');
+    expect(coep('/s/Qmup0X1A8ovl2FmKJKA8mB')).toBe('require-corp');
   });
 
-  it('keeps the stricter require-corp on every other document route', () => {
+  it('keeps the stricter require-corp on every document route', () => {
     expect(coep('/')).toBe('require-corp');
     expect(coep('/library')).toBe('require-corp');
     // Must not be caught by a naive startsWith('/s').
@@ -59,7 +60,7 @@ describe('middleware cross-origin isolation headers', () => {
   });
 
   it('does not put COEP on /api routes', () => {
-    const res = middleware(new NextRequest('http://localhost:3000/api/share/tok'));
+    const res = middleware(new NextRequest('http://localhost:3000/api/opds/proxy/tok'));
     expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
   });
 });

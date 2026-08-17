@@ -1,5 +1,5 @@
 import { Book, BookConfig, BookNote } from '@/types/book';
-import { FileHead, FileSyncError, FileSyncProvider } from './provider';
+import { FileHead, FileSyncError, FileSyncProvider, StreamProgress } from './provider';
 import { LocalStore } from './localStore';
 import {
   ancestorsOf,
@@ -58,6 +58,24 @@ export interface SyncFailureEntry {
 }
 
 /**
+ * A single progress event from `syncLibrary`. The `transferred` / `totalBytes`
+ * / `transferSpeed` fields are present only while a streaming transfer for the
+ * current book is in flight (see {@link SyncLibraryOptions.onProgress}).
+ */
+export interface SyncProgressEvent {
+  book: Book;
+  index: number;
+  total: number;
+  action?: string;
+  /** Bytes transferred so far for the current book's file, when streaming. */
+  transferred?: number;
+  /** Total bytes of the current book's file, when streaming. */
+  totalBytes?: number;
+  /** Rolling speed in bytes/sec, when streaming. */
+  transferSpeed?: number;
+}
+
+/**
  * Aggregate result of a library-wide sync. Counters are kept granular so the
  * UI can render an honest "X uploaded, Y already in sync, Z failed" toast.
  */
@@ -100,10 +118,14 @@ export interface SyncLibraryOptions {
    */
   concurrency?: number;
   /**
-   * Optional progress callback fired before each book is processed,
-   * suitable for driving a UI like "Syncing 3 / 42 — Project Hail Mary".
+   * Optional progress callback fired before each book is processed, suitable
+   * for driving a UI like "Syncing 3 / 42 — Project Hail Mary". When a
+   * streaming transfer for that book is running (WebDAV/Drive/S3/OneDrive on
+   * Tauri), `transferred` / `totalBytes` / `transferSpeed` carry byte-level
+   * progress so the UI can render "Uploading 1.1 GB / 1.1 GB" instead of
+   * looking frozen for the whole file.
    */
-  onProgress?: (info: { book: Book; index: number; total: number; action?: string }) => void;
+  onProgress?: (info: SyncProgressEvent) => void;
 }
 
 /**
@@ -319,7 +341,10 @@ export class FileSyncEngine {
    * nothing — and at library scale (a cloud-only web library) it turns every
    * sync into a full per-book request storm. `no-source` costs zero requests.
    */
-  async pushBookFile(book: Book): Promise<PushBookFileResult> {
+  async pushBookFile(
+    book: Book,
+    onProgress?: (p: StreamProgress) => void,
+  ): Promise<PushBookFileResult> {
     const dirPath = buildBookDirPath(this.provider.rootPath, book.hash);
     const path = buildBookFilePath(this.provider.rootPath, book);
     const dirs = [...ancestorsOf(`${dirPath}/.placeholder`), dirPath];
@@ -347,12 +372,12 @@ export class FileSyncEngine {
           return { uploaded: false, reason: 'remote-matches' };
         }
         await this.ensureDirs(dirs);
-        let ok = await this.provider.uploadStream(path, src.path);
+        let ok = await this.provider.uploadStream(path, src.path, onProgress);
         if (!ok) {
           // Mirror the buffered path's one-shot retry: a parent may have been
           // recreated mid-PUT (409). Re-ensure directories and try once more.
           await this.ensureDirs(dirs);
-          ok = await this.provider.uploadStream(path, src.path);
+          ok = await this.provider.uploadStream(path, src.path, onProgress);
           if (!ok) throw new FileSyncError('Streaming upload failed', 'NETWORK');
         }
         return { uploaded: true };
@@ -430,7 +455,7 @@ export class FileSyncEngine {
    * Returns false when the remote holds no book file. syncLibrary's discovery
    * loop covers the library-wide variant of this.
    */
-  async downloadBookFile(book: Book): Promise<boolean> {
+  async downloadBookFile(book: Book, onProgress?: (p: StreamProgress) => void): Promise<boolean> {
     const dirPath = buildBookDirPath(this.provider.rootPath, book.hash);
     const entries = await this.provider.list(dirPath);
     const fileEntry = entries.find(
@@ -441,7 +466,7 @@ export class FileSyncEngine {
     let written = false;
     if (this.provider.downloadStream) {
       const dst = await this.store.prepareLocalBookPath(book);
-      written = await this.provider.downloadStream(fileEntry.path, dst);
+      written = await this.provider.downloadStream(fileEntry.path, dst, onProgress);
     } else {
       const bytes = await this.provider.readBinary(fileEntry.path);
       if (bytes) {
@@ -629,10 +654,10 @@ export class FileSyncEngine {
           hasLocalFile(book) &&
           knownNoSource.get(book.hash) !== (book.updatedAt ?? 0)));
 
-    // A book whose FILE is on the remote is cloud-backed, exactly like a book in
-    // Readest Cloud storage — and `book.uploadedAt` is the only thing the rest of
-    // the app reads to know that. Leaving it null for a provider-synced book made
-    // the whole library misread it as purely-local: it could never be re-downloaded
+    // A book whose FILE is on the remote is cloud-backed — and `book.uploadedAt`
+    // is the only thing the rest of the app reads to know that. Leaving it null
+    // for a provider-synced book made the whole library misread it as purely-local:
+    // it could never be re-downloaded
     // (`makeBookAvailable` gates on `uploadedAt`), the shelf offered Upload instead
     // of Download, and — the data loss in #5084 — once "Remove from Device Only"
     // cleared `downloadedAt`, the stale-record cleanup treated it as a local book
@@ -881,9 +906,10 @@ export class FileSyncEngine {
         remoteBooksToDownload,
         concurrency,
         async (rb) => {
+          const downloadIndex = downloadStarted;
           options.onProgress?.({
             book: rb,
-            index: downloadStarted,
+            index: downloadIndex,
             total: remoteBooksToDownload.length,
             action: 'downloading',
           });
@@ -896,7 +922,17 @@ export class FileSyncEngine {
             let written = false;
             if (this.provider.downloadStream && explicitPath) {
               const dst = await this.store.prepareLocalBookPath(rb);
-              written = await this.provider.downloadStream(explicitPath, dst);
+              written = await this.provider.downloadStream(explicitPath, dst, (p) =>
+                options.onProgress?.({
+                  book: rb,
+                  index: downloadIndex,
+                  total: remoteBooksToDownload.length,
+                  action: 'downloading',
+                  transferred: p.progress,
+                  totalBytes: p.total,
+                  transferSpeed: p.transferSpeed,
+                }),
+              );
             } else {
               const remotePath = explicitPath ?? buildBookFilePath(this.provider.rootPath, rb);
               const fileBytes = await this.provider.readBinary(remotePath);
@@ -989,9 +1025,10 @@ export class FileSyncEngine {
         booksToPush,
         concurrency,
         async (book) => {
+          const pushIndex = pushStarted;
           options.onProgress?.({
             book,
-            index: pushStarted,
+            index: pushIndex,
             total: booksToPush.length,
             action: 'uploading',
           });
@@ -1038,7 +1075,17 @@ export class FileSyncEngine {
             }
             if (needsFilePush(book)) {
               phase = 'upload-file';
-              const fileResult = await this.pushBookFile(book);
+              const fileResult = await this.pushBookFile(book, (p) =>
+                options.onProgress?.({
+                  book,
+                  index: pushIndex,
+                  total: booksToPush.length,
+                  action: 'uploading',
+                  transferred: p.progress,
+                  totalBytes: p.total,
+                  transferSpeed: p.transferSpeed,
+                }),
+              );
               if (fileResult.uploaded) {
                 result.filesUploaded += 1;
                 syncedHashes.add(book.hash);

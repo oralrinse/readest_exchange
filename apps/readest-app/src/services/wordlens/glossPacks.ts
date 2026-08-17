@@ -52,7 +52,6 @@ const ensureStoreDir = async (appService: AppService): Promise<void> => {
 type DownloadFileFn = (params: {
   appService: AppService;
   dst: string;
-  cfp: string;
   url: string;
   onProgress?: ProgressHandler;
   singleThreaded?: boolean;
@@ -79,7 +78,7 @@ export const downloadViaTempFile = async (
   crypto.getRandomValues(ids);
   const tmpRel = `${STORE_DIR}/.dl-${ids[0]!.toString(36)}.tmp`;
   const dst = await appService.resolveFilePath(tmpRel, 'Data'); // ABSOLUTE path under Data
-  await downloadFileFn({ appService, dst, cfp: dst, url, onProgress, singleThreaded: true });
+  await downloadFileFn({ appService, dst, url, onProgress, singleThreaded: true });
   try {
     return (await appService.readFile(dst, 'None', 'binary')) as ArrayBuffer;
   } finally {

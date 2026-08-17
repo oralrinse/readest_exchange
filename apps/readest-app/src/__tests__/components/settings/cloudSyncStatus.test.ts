@@ -1,25 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import {
   canToggleCloudProvider,
-  getReadestCloudRowStatus,
   getThirdPartyRowStatus,
 } from '@/components/settings/integrations/cloudSyncStatus';
 
 const _ = (key: string) => key;
-
-describe('getReadestCloudRowStatus', () => {
-  test('signed out wins over everything', () => {
-    expect(getReadestCloudRowStatus(_, { signedIn: false, enabled: true })).toBe('Not signed in');
-  });
-
-  test('reports off when the user unchecked it', () => {
-    expect(getReadestCloudRowStatus(_, { signedIn: true, enabled: false })).toBe('Off');
-  });
-
-  test('reports active when checked', () => {
-    expect(getReadestCloudRowStatus(_, { signedIn: true, enabled: true })).toBe('Active');
-  });
-});
 
 describe('getThirdPartyRowStatus', () => {
   const base = {

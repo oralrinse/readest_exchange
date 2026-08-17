@@ -15,8 +15,6 @@ import LegalLinks from '@/components/LegalLinks';
 import ProfileHeader from './components/Header';
 import UserInfo from './components/UserInfo';
 import AccountActions from './components/AccountActions';
-import StorageManager from './components/StorageManager';
-import SharedLinksSection from './components/SharedLinksSection';
 import { SyncPassphraseSection } from './components/SyncPassphraseSection';
 import { SyncCategoriesSection } from './components/SyncCategoriesSection';
 
@@ -24,11 +22,9 @@ const ProfilePage = () => {
   const _ = useTranslation();
   const router = useRouter();
   const { appService } = useEnv();
-  const { token, user, refresh } = useAuth();
+  const { token, user } = useAuth();
   const { safeAreaInsets, isRoundedWindow } = useThemeStore();
 
-  const [showStorageManager, setShowStorageManager] = useState(false);
-  const [showSharedLinksManager, setShowSharedLinksManager] = useState(false);
   const searchParams = useSearchParams();
   const [showSyncManager, setShowSyncManager] = useState(
     () => searchParams?.get('section') === 'sync',
@@ -61,12 +57,7 @@ const ProfilePage = () => {
   } = useUserActions();
 
   const handleGoBack = () => {
-    if (showStorageManager) {
-      setShowStorageManager(false);
-      refresh();
-    } else if (showSharedLinksManager) {
-      setShowSharedLinksManager(false);
-    } else if (showSyncManager) {
+    if (showSyncManager) {
       setShowSyncManager(false);
     } else {
       navigateToLibrary(router);
@@ -84,13 +75,6 @@ const ProfilePage = () => {
     );
   };
 
-  const handleManageStorage = () => {
-    setShowStorageManager(true);
-  };
-
-  const handleManageSharedLinks = () => {
-    setShowSharedLinksManager(true);
-  };
   const handleManageSync = () => {
     setShowSyncManager(true);
   };
@@ -136,15 +120,7 @@ const ProfilePage = () => {
                 <UserInfo avatarUrl={avatarUrl} userFullName={userFullName} userEmail={userEmail} />
               </div>
 
-              {showStorageManager ? (
-                <div className='flex flex-col gap-y-8 px-6'>
-                  <StorageManager />
-                </div>
-              ) : showSharedLinksManager ? (
-                <div className='flex flex-col gap-y-8 px-6'>
-                  <SharedLinksSection />
-                </div>
-              ) : showSyncManager ? (
+              {showSyncManager ? (
                 <div className='flex flex-col gap-y-8 px-6'>
                   <SyncCategoriesSection />
                   <SyncPassphraseSection />
@@ -157,8 +133,6 @@ const ProfilePage = () => {
                     onUpdateEmail={handleUpdateEmail}
                     onConfirmDelete={handleDeleteWithMessage}
                     onConfirmDeleteAllBooks={handleDeleteAllBooksWithMessage}
-                    onManageStorage={handleManageStorage}
-                    onManageSharedLinks={handleManageSharedLinks}
                     onManageSync={handleManageSync}
                   />
                 </div>

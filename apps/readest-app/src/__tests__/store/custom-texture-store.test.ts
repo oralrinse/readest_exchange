@@ -4,7 +4,6 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { CustomTexture } from '@/styles/textures';
 import { SystemSettings } from '@/types/settings';
 import { EnvConfigType } from '@/services/environment';
-import { publishReplicaUpsert } from '@/services/sync/replicaPublish';
 
 // Mock textures module - we need createCustomTexture, and the mount/unmount functions
 vi.mock('@/styles/textures', async (importOriginal) => {
@@ -15,15 +14,6 @@ vi.mock('@/styles/textures', async (importOriginal) => {
     unmountBackgroundTexture: vi.fn(),
   };
 });
-
-// Replica-publish helpers fan out to the network — stub them so tests stay
-// hermetic. We assert the reincarnation token reaches the upsert via a spy.
-vi.mock('@/services/sync/replicaPublish', () => ({
-  publishReplicaUpsert: vi.fn(),
-  publishReplicaDelete: vi.fn(),
-}));
-
-const mockPublishReplicaUpsert = vi.mocked(publishReplicaUpsert);
 
 function makeTexture(
   overrides: Partial<CustomTexture> & { id: string; name: string },
@@ -116,24 +106,21 @@ describe('customTextureStore', () => {
     // remove-wins a plain re-import can't revive it, so the next pull
     // re-applies the delete. Re-import must mint a reincarnation token.
 
-    test('re-import after a local delete mints + publishes a reincarnation token', () => {
+    test('re-import after a local delete mints a reincarnation token', () => {
       useCustomTextureStore.getState().addTexture('/images/wood.png', { contentId: 'cid-1' });
       useCustomTextureStore
         .getState()
         .removeTexture(useCustomTextureStore.getState().textures[0]!.id);
-      mockPublishReplicaUpsert.mockClear();
 
       const revived = useCustomTextureStore.getState().addTexture('/images/wood.png', {
         contentId: 'cid-1',
       });
 
       expect(revived.deletedAt).toBeUndefined();
+      // Binary transfers were removed — the token is minted on the local
+      // record so a later import knows it's a re-import, but no texture
+      // replica row is published anymore.
       expect(revived.reincarnation).toBeTruthy();
-      expect(mockPublishReplicaUpsert).toHaveBeenCalledTimes(1);
-      const call = mockPublishReplicaUpsert.mock.calls[0]!;
-      expect(call[0]).toBe('texture');
-      expect(call[2]).toBe('cid-1');
-      expect(call[3]).toBe(revived.reincarnation);
     });
 
     test('re-import of a still-live texture with the same contentId mints a token (stale-local race)', () => {

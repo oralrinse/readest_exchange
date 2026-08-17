@@ -14,7 +14,6 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useCustomTextureStore } from '@/store/customTextureStore';
-import { queueReplicaBinaryUpload } from '@/services/sync/replicaBinaryUpload';
 import {
   BackgroundTextureScope,
   getBackgroundTextureSettings,
@@ -334,7 +333,6 @@ const ThemePanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset
         });
         if (customTexture && !customTexture.error) {
           await loadTexture(envConfig, customTexture.id);
-          if (appService) void queueReplicaBinaryUpload('texture', customTexture, appService);
         }
       }
       saveCustomTextures(envConfig);

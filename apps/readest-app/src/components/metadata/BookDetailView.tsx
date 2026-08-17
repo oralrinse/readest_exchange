@@ -37,14 +37,11 @@ interface BookDetailViewProps {
   book: Book;
   metadata: BookMetadata | null;
   fileSize: number | null;
-  shareEnabled?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
-  onDeleteCloudBackup?: () => void;
   onDeleteLocalCopy?: () => void;
   onDownload?: () => void;
   onUpload?: () => void;
-  onShare?: () => void;
   onExport?: () => void;
   onMetadataValueClick?: (type: 'tag' | 'subject', value: string) => void;
 }
@@ -53,14 +50,11 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
   book,
   metadata,
   fileSize,
-  shareEnabled,
   onEdit,
   onDelete,
-  onDeleteCloudBackup,
   onDeleteLocalCopy,
   onDownload,
   onUpload,
-  onShare,
   onExport,
   onMetadataValueClick,
 }) => {
@@ -164,18 +158,6 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                     label={_('Remove from Cloud & Device')}
                     onClick={onDelete}
                   />
-                  {/* Offered only where a cloud-only removal means something: a
-                      third-party provider mirrors the library, so it would just
-                      re-upload the still-local book on its next sync (#5084). */}
-                  {onDeleteCloudBackup && (
-                    <MenuItem
-                      noIcon
-                      transient
-                      label={_('Remove from Cloud Only')}
-                      onClick={onDeleteCloudBackup}
-                      disabled={!book.uploadedAt}
-                    />
-                  )}
                   <MenuItem
                     noIcon
                     transient
@@ -206,20 +188,6 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                     openExternalUrl(getGoodreadsSearchUrl(getBookGoodreadsQuery(book)))
                   }
                 />
-                {onShare && (
-                  <MenuItem
-                    noIcon
-                    transient
-                    label={_('Share Book')}
-                    disabled={!shareEnabled}
-                    tooltip={
-                      shareEnabled
-                        ? undefined
-                        : _('Sign in and make the book available to share it')
-                    }
-                    onClick={onShare}
-                  />
-                )}
                 {onExport && (
                   <MenuItem
                     noIcon

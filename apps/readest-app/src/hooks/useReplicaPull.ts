@@ -1,23 +1,8 @@
 import { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useEnv } from '@/context/EnvContext';
-import { useCustomDictionaryStore, findDictionaryByContentId } from '@/store/customDictionaryStore';
-import {
-  useCustomFontStore,
-  findFontByContentId,
-  migrateLegacyFonts,
-} from '@/store/customFontStore';
-import {
-  useCustomTextureStore,
-  findTextureByContentId,
-  migrateLegacyTextures,
-} from '@/store/customTextureStore';
 import { useCustomOPDSStore, findOPDSCatalogByContentId } from '@/store/customOPDSStore';
-import { transferManager } from '@/services/transferManager';
 import { getReplicaSync, subscribeReplicaSyncReady } from '@/services/sync/replicaSync';
-import { dictionaryAdapter } from '@/services/sync/adapters/dictionary';
-import { fontAdapter } from '@/services/sync/adapters/font';
-import { textureAdapter } from '@/services/sync/adapters/texture';
 import { opdsCatalogAdapter } from '@/services/sync/adapters/opdsCatalog';
 import { settingsAdapter, type SettingsRemoteRecord } from '@/services/sync/adapters/settings';
 import {
@@ -27,7 +12,6 @@ import {
   publishSettingsIfChanged,
 } from '@/services/sync/replicaSettingsSync';
 import { useSettingsStore } from '@/store/settingsStore';
-import { queueReplicaBinaryUpload } from '@/services/sync/replicaBinaryUpload';
 import {
   replicaPullAndApply,
   type PullAndApplyDeps,
@@ -36,18 +20,17 @@ import {
 import type { ReplicaAdapter } from '@/services/sync/replicaRegistry';
 import { getAccessToken } from '@/utils/access';
 import { isSyncCategoryEnabled } from '@/services/sync/syncCategories';
-import { uniqueId } from '@/utils/misc';
 import type { EnvConfigType } from '@/services/environment';
-import type { AppService, BaseDir } from '@/types/system';
+import type { AppService } from '@/types/system';
 import type { ReplicaSyncManager } from '@/services/sync/replicaSyncManager';
-import type { ImportedDictionary } from '@/services/dictionaries/types';
-import type { CustomFont } from '@/styles/fonts';
-import type { CustomTexture } from '@/styles/textures';
 import type { OPDSCatalog } from '@/types/opds';
 import type { Hlc, ReplicaRow } from '@/types/replica';
 import type { SystemSettings } from '@/types/settings';
 
-export type ReplicaKind = 'dictionary' | 'font' | 'texture' | 'opds_catalog' | 'settings';
+// Metadata-only replica kinds. Dictionary / font / texture binary replicas
+// were removed with Readest Cloud storage; only opds_catalog and the bundled
+// settings row still sync through the replica orchestrator.
+export type ReplicaKind = 'opds_catalog' | 'settings';
 
 export interface UseReplicaPullOpts {
   /** Replica kinds this page wants pulled. */
@@ -101,25 +84,20 @@ let hasCurrentUser = false;
 // Shared promise for the boot-time settings pull. All other kinds'
 // boot pulls await this so applyRemoteSettings has a chance to seed
 // `lastPublishedFields` with server-authoritative values before
-// dict/font/texture/opds_catalog auto-saves fire — without that
-// ordering, those auto-saves diff against `undefined` on a fresh
-// boot and republish the local default (e.g.
-// `dictionarySettings.providerOrder`) with a fresh HLC, clobbering
-// cross-device state under per-field LWW.
+// opds_catalog auto-saves fire — without that ordering, those auto-
+// saves diff against `undefined` on a fresh boot and republish the
+// local default with a fresh HLC, clobbering cross-device state under
+// per-field LWW.
 let settingsBootPullPromise: Promise<void> | null = null;
 
 /**
  * Per-kind config consumed by `buildReplicaPullDeps`. The factory fills
- * in everything that is structurally identical across kinds (creating
- * bundle dirs, queueing downloads, checking files exist, queueing
- * upload of the local copy, gating on auth). Per-kind logic stays
- * here: the adapter, base dir, find/hydrate/apply/soft-delete store
- * accessors.
+ * in everything that is structurally identical across kinds (gating on
+ * auth). Per-kind logic stays here: the adapter, find/hydrate/apply/
+ * soft-delete store accessors.
  */
 interface ReplicaPullConfig<T extends ReplicaLocalRecord> {
   kind: ReplicaKind;
-  /** Required for binary-bearing kinds; omitted for metadata-only kinds. */
-  baseDir?: BaseDir;
   adapter: ReplicaAdapter<T>;
   findByContentId: (id: string) => T | undefined;
   hydrateLocalStore?: (envConfig: EnvConfigType) => Promise<void>;
@@ -145,7 +123,6 @@ interface ReplicaPullConfig<T extends ReplicaLocalRecord> {
  */
 const buildReplicaPullDeps = <T extends ReplicaLocalRecord>(
   manager: ReplicaSyncManager,
-  service: AppService,
   envConfig: EnvConfigType,
   config: ReplicaPullConfig<T>,
   pullOpts?: { since?: Hlc | null },
@@ -165,29 +142,6 @@ const buildReplicaPullDeps = <T extends ReplicaLocalRecord>(
   softDeleteByContentId: config.softDeleteByContentId,
   silentDecrypt: config.silentDecrypt,
   onSaltNotFound: config.onSaltNotFound,
-  // The bundle / binary callbacks below are only reached when the
-  // adapter declares a `binary` capability — replicaPullAndApply
-  // short-circuits metadata-only kinds before invoking them. The
-  // non-null assertion on baseDir is therefore safe in the binary
-  // path; metadata-only kinds (opds_catalog) leave config.baseDir
-  // unset and never hit these.
-  createBundleDir: async () => {
-    const id = uniqueId();
-    await service.createDir(id, config.baseDir!, true);
-    return id;
-  },
-  queueReplicaDownload: (contentId, displayTitle, files, _bundleDir, base) =>
-    transferManager.queueReplicaDownload(config.kind, contentId, displayTitle, files, base),
-  filesExist: async (bundleDir, filenames) => {
-    for (const filename of filenames) {
-      const exists = await service.exists(`${bundleDir}/${filename}`, config.baseDir!);
-      if (!exists) return false;
-    }
-    return true;
-  },
-  queueLocalBinaryUpload: async (record) => {
-    await queueReplicaBinaryUpload(config.kind, record, service);
-  },
   // The pull skips when this resolves false. We piggyback the
   // user-facing category gate here so disabling a kind in
   // `User → Manage Sync` no-ops the pull (no HTTP, no warnings)
@@ -203,57 +157,8 @@ const buildReplicaPullDeps = <T extends ReplicaLocalRecord>(
       },
 });
 
-const dictionaryPullConfig: ReplicaPullConfig<ImportedDictionary> = {
-  kind: 'dictionary',
-  baseDir: 'Dictionaries',
-  adapter: dictionaryAdapter,
-  // Page may mount before loadCustomDictionaries has hydrated the
-  // in-memory store, so the dedup helper falls back to settings.
-  findByContentId: findDictionaryByContentId,
-  // Pull-side relies on the in-memory dict store reflecting persisted
-  // state — without this, the auto-persist fired by applyRemoteDictionary
-  // would write back only the just-applied rows and clobber every
-  // persisted dict that hadn't been hydrated by an Annotator/Settings
-  // mount. Library-page refreshes were the visible victim.
-  hydrateLocalStore: (envConfig) =>
-    useCustomDictionaryStore.getState().loadCustomDictionaries(envConfig),
-  applyRemote: (dict) => useCustomDictionaryStore.getState().applyRemoteDictionary(dict),
-  softDeleteByContentId: (id) => useCustomDictionaryStore.getState().softDeleteByContentId(id),
-};
-
-const fontPullConfig: ReplicaPullConfig<CustomFont> = {
-  kind: 'font',
-  baseDir: 'Fonts',
-  adapter: fontAdapter,
-  findByContentId: findFontByContentId,
-  hydrateLocalStore: async (envConfig) => {
-    await useCustomFontStore.getState().loadCustomFonts(envConfig);
-    // Rehash legacy flat-path fonts so the user doesn't have to
-    // re-import them by hand to get them onto other devices.
-    await migrateLegacyFonts(envConfig);
-  },
-  applyRemote: (font) => useCustomFontStore.getState().applyRemoteFont(font),
-  softDeleteByContentId: (id) => useCustomFontStore.getState().softDeleteByContentId(id),
-};
-
-const texturePullConfig: ReplicaPullConfig<CustomTexture> = {
-  kind: 'texture',
-  baseDir: 'Images',
-  adapter: textureAdapter,
-  findByContentId: findTextureByContentId,
-  hydrateLocalStore: async (envConfig) => {
-    await useCustomTextureStore.getState().loadCustomTextures(envConfig);
-    // Rehash legacy flat-path textures so the user doesn't have to
-    // re-import them by hand to get them onto other devices.
-    await migrateLegacyTextures(envConfig);
-  },
-  applyRemote: (texture) => useCustomTextureStore.getState().applyRemoteTexture(texture),
-  softDeleteByContentId: (id) => useCustomTextureStore.getState().softDeleteByContentId(id),
-};
-
 const opdsCatalogPullConfig: ReplicaPullConfig<OPDSCatalog> = {
   kind: 'opds_catalog',
-  // metadata-only — no baseDir
   adapter: opdsCatalogAdapter,
   findByContentId: findOPDSCatalogByContentId,
   hydrateLocalStore: (envConfig) => useCustomOPDSStore.getState().loadCustomOPDSCatalogs(envConfig),
@@ -263,7 +168,6 @@ const opdsCatalogPullConfig: ReplicaPullConfig<OPDSCatalog> = {
 
 const settingsPullConfig = (envConfig: EnvConfigType): ReplicaPullConfig<SettingsRemoteRecord> => ({
   kind: 'settings',
-  // metadata-only — no baseDir
   adapter: settingsAdapter,
   // Synthesize a "local" record carrying the persisted cipher
   // fingerprint so the orchestrator's cipher-fingerprint comparison
@@ -305,7 +209,6 @@ const settingsPullConfig = (envConfig: EnvConfigType): ReplicaPullConfig<Setting
  */
 const runPullForKind = async (
   kind: ReplicaKind,
-  service: AppService,
   envConfig: EnvConfigType,
   pullOpts?: { since?: Hlc | null },
   pullOverride?: () => Promise<ReplicaRow[]>,
@@ -313,59 +216,15 @@ const runPullForKind = async (
   const ctx = getReplicaSync();
   if (!ctx) return;
   switch (kind) {
-    case 'dictionary':
-      await replicaPullAndApply(
-        buildReplicaPullDeps(
-          ctx.manager,
-          service,
-          envConfig,
-          dictionaryPullConfig,
-          pullOpts,
-          pullOverride,
-        ),
-      );
-      return;
-    case 'font':
-      await replicaPullAndApply(
-        buildReplicaPullDeps(
-          ctx.manager,
-          service,
-          envConfig,
-          fontPullConfig,
-          pullOpts,
-          pullOverride,
-        ),
-      );
-      return;
-    case 'texture':
-      await replicaPullAndApply(
-        buildReplicaPullDeps(
-          ctx.manager,
-          service,
-          envConfig,
-          texturePullConfig,
-          pullOpts,
-          pullOverride,
-        ),
-      );
-      return;
     case 'opds_catalog':
       await replicaPullAndApply(
-        buildReplicaPullDeps(
-          ctx.manager,
-          service,
-          envConfig,
-          opdsCatalogPullConfig,
-          pullOpts,
-          pullOverride,
-        ),
+        buildReplicaPullDeps(ctx.manager, envConfig, opdsCatalogPullConfig, pullOpts, pullOverride),
       );
       return;
     case 'settings':
       await replicaPullAndApply(
         buildReplicaPullDeps(
           ctx.manager,
-          service,
           envConfig,
           settingsPullConfig(envConfig),
           pullOpts,
@@ -389,7 +248,7 @@ const triggerIncrementalPullAll = (): void => {
   if (!autoSyncContext) return;
   const ctx = getReplicaSync();
   if (!ctx) return;
-  const { service, envConfig } = autoSyncContext;
+  const { envConfig } = autoSyncContext;
 
   const kindsToPull: ReplicaKind[] = [];
   for (const kind of registeredKinds) {
@@ -421,7 +280,7 @@ const triggerIncrementalPullAll = (): void => {
         kindsToPull.map(async (kind) => {
           const rows = rowsByKind.get(kind) ?? [];
           try {
-            await runPullForKind(kind, service, envConfig, undefined, async () => rows);
+            await runPullForKind(kind, envConfig, undefined, async () => rows);
           } catch (err) {
             console.warn(`replica ${kind} incremental apply failed`, err);
           }
@@ -469,12 +328,12 @@ const onPeriodicTick = (): void => {
  * `registeredKinds` so the auto-pull triggers fan it out alongside the
  * caller's requested kinds.
  */
-const ensureSettingsBootPulled = (service: AppService, envConfig: EnvConfigType): Promise<void> => {
+const ensureSettingsBootPulled = (envConfig: EnvConfigType): Promise<void> => {
   if (settingsBootPullPromise) return settingsBootPullPromise;
   registeredKinds.add('settings');
   pulledKinds.add('settings');
   pullInFlight.add('settings');
-  settingsBootPullPromise = runPullForKind('settings', service, envConfig, { since: null })
+  settingsBootPullPromise = runPullForKind('settings', envConfig, { since: null })
     .catch((err) => {
       console.warn('replica settings pull failed', err);
       pulledKinds.delete('settings');
@@ -516,9 +375,8 @@ const installAutoSyncListeners = (service: AppService, envConfig: EnvConfigType)
  *     fired `delayMs` after first mount. Uses `since=null` for a full
  *     re-fetch that recovers from any prior cursor-advanced-but-not-
  *     applied gaps. The `settings` kind is implicitly pulled FIRST
- *     (regardless of whether the caller requested it) so the rest of
- *     the kinds' auto-saves don't republish stale local providerOrder /
- *     providerEnabled with a fresh HLC.
+ *     (regardless of whether the caller requested it) so opds_catalog
+ *     auto-saves don't republish stale local state with a fresh HLC.
  *  2. Incremental auto-pull — runs for the lifetime of the tab via
  *     module-level visibility / online listeners + a 5-minute interval.
  *     Uses the persisted cursor for cheap delta fetches. Concurrent
@@ -559,12 +417,10 @@ export const useReplicaPull = ({
       installAutoSyncListeners(appService, envConfig);
       if (timer) return;
       // Settings is implicitly pulled first regardless of whether the
-      // caller asked for it (e.g. the reader page only requests
-      // dictionary/font/texture). Without that seeding, applyRemote
-      // for a binary kind on a fresh device appends the new id to the
-      // local default `dictionarySettings.providerOrder` and the
-      // ensuing auto-save publishes that order with a fresh HLC,
-      // overwriting the cross-device order set on another device.
+      // caller asked for it. Without that seeding, applyRemote for
+      // another kind on a fresh device could publish stale local state
+      // with a fresh HLC, overwriting cross-device values set on
+      // another device.
       const otherPending = kinds.filter((k) => k !== 'settings' && !pulledKinds.has(k));
       const needsSettings = !pulledKinds.has('settings');
       if (otherPending.length === 0 && !needsSettings) return;
@@ -573,7 +429,7 @@ export const useReplicaPull = ({
           // Await the settings boot pull before dispatching the others.
           // Subsequent mounts share `settingsBootPullPromise` so the
           // pull only happens once per session.
-          await ensureSettingsBootPulled(appService, envConfig);
+          await ensureSettingsBootPulled(envConfig);
           // Boot path skips disabled kinds: enabling a category later
           // re-fires `triggerIncrementalPullAll` from a focus event,
           // which will fetch the missed rows. This keeps boot bandwidth
@@ -619,7 +475,7 @@ export const useReplicaPull = ({
             eligible.map(async (kind) => {
               try {
                 const rows = rowsByKind.get(kind) ?? [];
-                await runPullForKind(kind, appService, envConfig, undefined, async () => rows);
+                await runPullForKind(kind, envConfig, undefined, async () => rows);
               } catch (err) {
                 console.warn(`replica ${kind} boot apply failed`, err);
                 pulledKinds.delete(kind);

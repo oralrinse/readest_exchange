@@ -10,16 +10,11 @@ import { throttle } from '@/utils/throttle';
 import { debounce } from '@/utils/debounce';
 import { eventDispatcher } from '@/utils/event';
 import { useSettingsStore } from '@/store/settingsStore';
-import {
-  isReadestCloudEnabled,
-  getActiveFileSyncBackends,
-} from '@/services/sync/cloudSyncProvider';
+import { getActiveFileSyncBackends } from '@/services/sync/cloudSyncProvider';
 import { isDemoBook } from '@/services/demoBooks';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { ensureFeedBookCover } from '@/services/rss/feedBook';
 import { runFileLibrarySyncPass } from '@/services/sync/file/runLibrarySync';
-import { checkMixedFleetOnce } from '@/services/sync/fleetDetection';
-import { useSyncContext } from '@/context/SyncContext';
 import {
   pickFresherReadingStatus,
   needsCoverRefresh,
@@ -35,7 +30,6 @@ export const useBooksSync = () => {
   const { library, isSyncing, libraryLoaded } = useLibraryStore();
   const { setLibrary, setIsSyncing, setSyncProgress } = useLibraryStore();
   const { useSyncInited, syncedBooks, syncBooks, lastSyncedAtBooks } = useSync();
-  const { syncClient } = useSyncContext();
   const isPullingRef = useRef(false);
 
   const getNewBooks = useCallback(() => {
@@ -54,13 +48,13 @@ export const useBooksSync = () => {
       // book.filePath is a device-local absolute path used by the in-place
       // import flow to point at a file outside Books/<hash>/. It is
       // meaningless on any other device, so strip it before pushing to the
-      // cloud — peers always rehydrate via the hash-keyed copy that
-      // cloudService.downloadBook lands under Books/<hash>/. Keeping the
-      // source device's path in the cloud record would be dead data at
-      // best, and would become an active footgun if isBookAvailable ever
-      // got its branch order swapped (it currently checks Books/<hash>
-      // before falling back to filePath; flipping that order would make
-      // peers chase a non-existent path instead of downloading).
+      // cloud — peers always rehydrate via the hash-keyed copy that the file
+      // sync engine lands under Books/<hash>/. Keeping the source device's
+      // path in the cloud record would be dead data at best, and would become
+      // an active footgun if isBookAvailable ever got its branch order swapped
+      // (it currently checks Books/<hash> before falling back to filePath;
+      // flipping that order would make peers chase a non-existent path instead
+      // of downloading).
       // `altFilePaths` (the other on-disk names that resolve to the same book)
       // is device-local for exactly the same reason.
       .map(({ filePath: _filePath, altFilePaths: _altFilePaths, ...rest }): Book => rest);
@@ -80,9 +74,10 @@ export const useBooksSync = () => {
       // native pull below still requires `user`.
       const settingsNow = useSettingsStore.getState().settings;
       const backends = getActiveFileSyncBackends(settingsNow);
-      const readest = isReadestCloudEnabled(settingsNow);
       const runFilePass = backends.length > 0;
-      const runNativePull = readest && !!user;
+      // Account sync runs unconditionally once signed in (Readest Cloud
+      // storage was removed; the account-level metadata channel remains).
+      const runNativePull = !!user;
 
       if (!runFilePass && !runNativePull) return;
       if (isPullingRef.current) return;
@@ -136,15 +131,6 @@ export const useBooksSync = () => {
     throttle(
       async () => {
         if (isPullingRef.current) return;
-        // Readest Cloud unchecked: the native book channel is gated, so the
-        // interval runs the read-only mixed-fleet probe instead — a device
-        // still writing natively would otherwise fork progress silently
-        // (the auto library sync itself is useLibraryFileSync's).
-        const settingsNow = useSettingsStore.getState().settings;
-        if (!isReadestCloudEnabled(settingsNow)) {
-          void checkMixedFleetOnce(syncClient, settingsNow, _);
-          return;
-        }
         const newBooks = getNewBooks();
         if (!newBooks.lastSyncedAt) return;
         isPullingRef.current = true;
@@ -254,12 +240,6 @@ export const useBooksSync = () => {
       return oldBook;
     };
 
-    const oldBooksBatchSize = 100;
-    for (let i = 0; i < oldBooksNeedsDownload.length; i += oldBooksBatchSize) {
-      const batch = oldBooksNeedsDownload.slice(i, i + oldBooksBatchSize);
-      await appService?.downloadBookCovers(batch);
-    }
-
     const updatedLibrary = await Promise.all(liveLibrary.map(processOldBook));
     setLibrary(updatedLibrary);
     appService?.saveLibraryBooks(updatedLibrary);
@@ -300,7 +280,6 @@ export const useBooksSync = () => {
       const batchSize = 10;
       for (let i = 0; i < newBooks.length; i += batchSize) {
         const batch = newBooks.slice(i, i + batchSize);
-        await appService?.downloadBookCovers(batch);
         await Promise.all(batch.map(processNewBook));
         const progress = Math.min((i + batchSize) / newBooks.length, 1);
         setSyncProgress(progress);

@@ -3,7 +3,7 @@ import { AppService, BaseDir } from '@/types/system';
 import { SystemSettings } from '@/types/settings';
 import { EnvConfigType } from '@/services/environment';
 import { useLibraryStore } from '@/store/libraryStore';
-import { getCoverFilename, getLocalBookFilename } from '@/utils/book';
+import { getCoverFilename, getDir, getLocalBookFilename, isBookFile } from '@/utils/book';
 import { LocalStore } from './localStore';
 
 /**
@@ -26,6 +26,25 @@ const resolveLocalSource = async (
 ): Promise<{ path: string; base: BaseDir } | null> => {
   const managed = getLocalBookFilename(book);
   if (await appService.exists(managed, 'Books')) return { path: managed, base: 'Books' };
+
+  // The managed filename is a reconstruction from `sourceTitle || title`.
+  // Some formats put the RAW filename — extension included — into `sourceTitle`
+  // (a CBZ zip has no OPF metadata, so DocumentLoader falls back to the file
+  // name, e.g. `情绪病 1-64 - bundle.cbz`). `getLocalBookFilename` then appends
+  // its own extension, so the probe above misses the file the importer actually
+  // wrote (`…bundle.cbz.cbz` vs `…bundle.cbz`) and a book that is plainly on
+  // disk is reported `no-source` — which blocks the file upload (and, through
+  // the `uploadedAt` gate, adoption on other devices). Stop guessing: enumerate
+  // the per-hash dir and take the real book file.
+  const bookDir = getDir(book);
+  try {
+    const entries = await appService.readDirectory(bookDir, 'Books');
+    const real = entries.find((f) => f.size > 0 && isBookFile(f.path));
+    if (real) return { path: `${bookDir}/${real.path.replace(/\\/g, '/')}`, base: 'Books' };
+  } catch {
+    // Unreadable / absent dir keeps the no-source verdict; callers handle null.
+  }
+
   if (book.filePath && (await appService.exists(book.filePath, 'None'))) {
     return { path: book.filePath, base: 'None' };
   }
@@ -169,7 +188,7 @@ export const createAppLocalStore = ({
   },
 
   deleteBookLocally: async (book) => {
-    // Remove this device's managed copy of the book file (cloudService.deleteBook
+    // Remove this device's managed copy of the book file (BookSvc.deleteBook
     // with 'local' only ever touches app-managed Books/<hash>/ sources; an
     // in-place / external original is left untouched). The tombstone itself is
     // set by the engine before this call — we just persist it.
